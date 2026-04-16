@@ -73,11 +73,11 @@ function createDefaultNote(): Note {
 
 function createDefaultAuthorProfile(): AuthorProfile {
   return {
-    name: 'Wu Wenbo (吴文博)',
+    name: 'Dali',
     role: 'AI Agent 工程师',
     bio: '这里不只有代码，还有我对 Agentic Workflow 的深度思考。',
-    wechatTitle: '你的公众号名称',
-    wechatQrUrl: '',
+    wechatTitle: 'Agent 实战录',
+    wechatQrUrl: '/assets/qrcode.jpg',
     githubUrl: 'https://github.com'
   };
 }
@@ -104,14 +104,15 @@ function WorkspaceDashboard({ notes, zenMode, onCreateNote, onSelectNote }: Dash
             <span className="rounded-full border border-[#30363d] bg-slate-950/70 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-slate-400">
               {zenMode ? 'Zen Mode' : 'Dashboard'}
             </span>
-            <span className="text-sm text-slate-500">整个工作区已经释放到全高布局</span>
+            <span className="text-sm text-slate-500">持久存储全屏创作</span>
           </div>
           <div className="max-w-3xl">
             <h1 className="text-3xl font-semibold tracking-tight text-slate-100 md:text-5xl">
-              没有选中笔记时，这里应该是一块有信息密度的工作台。
+              双栏实时预览，让创作回归纯粹。
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-400 md:text-base">
-              现在你可以在最近编辑、快捷键和 Agent 项目之间快速切换，而不是面对空白页面。
+              这里是你的 Markdown 灵感实验室。无论是撰写技术文档还是记录代码片段，
+              你所敲下的每一行文字，都会即刻呈现出最规范的视觉排版。支持全语法高亮，让逻辑清晰可见。
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
