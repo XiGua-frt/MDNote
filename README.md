@@ -32,7 +32,7 @@
 
 ## 📸 界面预览
 
-> *三栏自适应设计，支持面板独立隐藏*
+> *三栏自适应设计，支持面板独立隐藏*  
 ![项目预览](./assets/screenshot.png)
 
 ---
@@ -51,27 +51,21 @@ npm install
 # 启动开发服务器
 npm run dev
 
----
+🤖 关于作者与 Agent 实验室
 
-## 🤖 关于作者与 Agent 实验室
+"不只是笔记工具，更是智能体工作流的实验场。"
 
-> **"不只是笔记工具，更是智能体工作流的实验场。"**
-
-我是一名深耕**AI Agent** 领域的全栈开发者。本工具 MDNote 是我构建个人知识库智能体（RAG Agent）的基础设施之一。
+我是一名深耕AI Agent 领域的全栈开发者。本工具 MDNote 是我构建个人知识库智能体（RAG Agent）的基础设施之一。
 
 如果你也对以下领域感兴趣，欢迎与我交流探讨：
-- 🤖 **LLM Agents**: 深度研究 **ReAct**、**Plan-and-Solve** 等推理架构的落地。
-- 📚 **RAG 进阶**: 针对长文档和结构化数据的检索增强生成优化。
-- 🎬 **AutoMedia**: 我正在开发的自动化多媒体处理智能体框架（即将开源）。
 
-### 📩 关注我的技术成长
-**不想错过 Agent 开发的硬核干货？** 扫码关注我的公众号
-1. 本项目的**详细架构设计文档**（PDF）。
-2. **AI 辅助编程 (Cursor/Claude Code) 实战指南**。
-3. 我个人的 **Agent & RAG 学习路径图**。
+🤖 LLM Agents: 深度研究 ReAct、Plan-and-Solve 等推理架构的落地。
+📚 RAG 进阶: 针对长文档和结构化数据的检索增强生成优化。
+🎬 AutoMedia: 我正在开发的自动化多媒体处理智能体框架（即将开源）。
+📩 关注我的技术成长
 
-<div align="center">
-  <img src="./assets/qrcode.jpg" width="200px" alt="公众号二维码" />
-  <br/>
-  <sub>扫描上方二维码，与我一同见证 Agent 时代的到来</sub>
-</div>
+不想错过 Agent 开发的硬核干货？ 扫码关注我的公众号
+
+本项目的详细架构设计文档（PDF）。
+我个人的 Agent & RAG 学习路径图。
+<div align="center"> <img src="./assets/qrcode.jpg" width="200px" alt="公众号二维码" /> <br/> <sub>扫描上方二维码，与我一同见证 Agent 时代的到来</sub> </div> ```
