@@ -41,8 +41,7 @@
 
 ```bash
 # 克隆仓库
-git clone [https://github.com/你的用户名/md-note.git](https://github.com/你的用户名/md-note.git)
-
+git clone https://github.com/XiGua-frt/md-note.git
 # 进入目录
 cd md-note
 
@@ -51,7 +50,6 @@ npm install
 
 # 启动开发服务器
 npm run dev
-
 
 ---
 
