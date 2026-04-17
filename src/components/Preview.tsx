@@ -1,8 +1,20 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Prism from 'prismjs';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-markup';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-clike';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-jsx';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-tsx';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-yaml';
+import 'prismjs/themes/prism-tomorrow.css';
 
 if (typeof window !== 'undefined') {
   (window as Window & { Prism?: typeof Prism }).Prism = Prism;
@@ -20,6 +32,27 @@ function resolveLanguage(rawLanguage?: string): string {
   if (normalized === 'sh') return 'bash';
   if (normalized === 'yml') return 'yaml';
   return normalized;
+}
+
+function renderHighlightedCodeBlock(text: string, language: string, className?: string) {
+  const grammar =
+    Prism.languages[language as keyof typeof Prism.languages] ?? Prism.languages.markup;
+
+  try {
+    const html = Prism.highlight(text, grammar, language);
+    return (
+      <pre className={className}>
+        <code className={`language-${language}`} dangerouslySetInnerHTML={{ __html: html }} />
+      </pre>
+    );
+  } catch (error) {
+    console.error('Prism highlight failed:', error);
+    return (
+      <pre className={className}>
+        <code>{text}</code>
+      </pre>
+    );
+  }
 }
 
 interface PreviewProps {
@@ -68,7 +101,7 @@ function Preview({ content, zenMode = false }: PreviewProps) {
               const language = resolveLanguage(match?.[1]);
               const text = String(children).replace(/\n$/, '');
 
-              if (!language || !text.trim()) {
+              if (!text.trim() || !match?.[1]) {
                 return (
                   <code className={className} {...props}>
                     {children}
@@ -76,30 +109,7 @@ function Preview({ content, zenMode = false }: PreviewProps) {
                 );
               }
 
-              try {
-                return (
-                  <SyntaxHighlighter
-                    style={atomDark}
-                    language={language}
-                    PreTag="div"
-                    customStyle={{
-                      borderRadius: '0.5rem',
-                      margin: 0,
-                      backgroundColor: '#0d1117',
-                      border: '1px solid #30363d'
-                    }}
-                  >
-                    {text}
-                  </SyntaxHighlighter>
-                );
-              } catch (error) {
-                console.error('Syntax highlight render failed:', error);
-                return (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                );
-              }
+              return renderHighlightedCodeBlock(text, language, className);
             }
           }}
         >

@@ -5,9 +5,19 @@ import CodeEditor from 'react-simple-code-editor';
 import Prism from 'prismjs';
 import ReactMarkdown from 'react-markdown';
 import { useReactToPrint } from 'react-to-print';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-markup';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-clike';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-jsx';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-tsx';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-yaml';
 import 'prismjs/themes/prism-tomorrow.css';
 
 if (typeof window !== 'undefined') {
@@ -26,6 +36,27 @@ function resolveLanguage(rawLanguage?: string): string {
   if (normalized === 'sh') return 'bash';
   if (normalized === 'yml') return 'yaml';
   return normalized;
+}
+
+function renderHighlightedCodeBlock(text: string, language: string, className?: string) {
+  const grammar =
+    Prism.languages[language as keyof typeof Prism.languages] ?? Prism.languages.markup;
+
+  try {
+    const html = Prism.highlight(text, grammar, language);
+    return (
+      <pre className={className}>
+        <code className={`language-${language}`} dangerouslySetInnerHTML={{ __html: html }} />
+      </pre>
+    );
+  } catch (error) {
+    console.error('Prism highlight failed:', error);
+    return (
+      <pre className={className}>
+        <code>{text}</code>
+      </pre>
+    );
+  }
 }
 
 type WorkspaceMode = 'edit' | 'read';
@@ -207,7 +238,7 @@ function LiveMarkdownWorkspace({
                   const language = resolveLanguage(match?.[1]);
                   const text = String(children).replace(/\n$/, '');
 
-                  if (!language || !text.trim()) {
+                  if (!text.trim() || !match?.[1]) {
                     return (
                       <code className={className} {...props}>
                         {children}
@@ -215,39 +246,7 @@ function LiveMarkdownWorkspace({
                     );
                   }
 
-                  try {
-                    return (
-                      <SyntaxHighlighter
-                        style={atomDark}
-                        language={language}
-                        PreTag="div"
-                        codeTagProps={{
-                          style: {
-                            backgroundColor: 'inherit',
-                            padding: 0
-                          }
-                        }}
-                        customStyle={{
-                          borderRadius: '0.5rem',
-                          margin: 0,
-                          padding: '1.25rem',
-                          backgroundColor: '#0f172a',
-                          border: '1px solid rgba(63, 63, 70, 0.5)',
-                          boxShadow:
-                            'inset 0 1px 0 rgba(255, 255, 255, 0.02), inset 0 -1px 0 rgba(0, 0, 0, 0.2)'
-                        }}
-                      >
-                        {text}
-                      </SyntaxHighlighter>
-                    );
-                  } catch (error) {
-                    console.error('Syntax highlight render failed:', error);
-                    return (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    );
-                  }
+                  return renderHighlightedCodeBlock(text, language, className);
                 }
               }}
             >
@@ -270,7 +269,7 @@ function LiveMarkdownWorkspace({
               const language = resolveLanguage(match?.[1]);
               const text = String(children).replace(/\n$/, '');
 
-              if (!language || !text.trim()) {
+              if (!text.trim() || !match?.[1]) {
                 return (
                   <code className={className} {...props}>
                     {children}
@@ -278,40 +277,7 @@ function LiveMarkdownWorkspace({
                 );
               }
 
-              try {
-                return (
-                  <SyntaxHighlighter
-                    style={atomDark}
-                    language={language}
-                    PreTag="div"
-                    codeTagProps={{
-                      style: {
-                        backgroundColor: 'inherit',
-                        padding: 0
-                      }
-                    }}
-                    customStyle={{
-                      borderRadius: '0.5rem',
-                      margin: 0,
-                      padding: '1.25rem',
-                      breakInside: 'avoid',
-                      pageBreakInside: 'avoid',
-                      backgroundColor: '#f3f4f6',
-                      border: '1px solid #d1d5db',
-                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -1px 0 rgba(0,0,0,0.05)'
-                    }}
-                  >
-                    {text}
-                  </SyntaxHighlighter>
-                );
-              } catch (error) {
-                console.error('Syntax highlight render failed:', error);
-                return (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                );
-              }
+              return renderHighlightedCodeBlock(text, language, className);
             }
           }}
         >
