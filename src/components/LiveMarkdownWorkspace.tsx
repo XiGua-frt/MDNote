@@ -5,72 +5,27 @@ import CodeEditor from 'react-simple-code-editor';
 import Prism from 'prismjs';
 import ReactMarkdown from 'react-markdown';
 import { useReactToPrint } from 'react-to-print';
-import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
-import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
-import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup';
-import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
-import clike from 'react-syntax-highlighter/dist/esm/languages/prism/clike';
-import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
-import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
-import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
-import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
-import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
-import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
-import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
-import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
-import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'prismjs/components/prism-markdown';
 import 'prismjs/themes/prism-tomorrow.css';
 
-const registeredLanguages = new Set<string>();
-
-function registerLanguage(name: string, grammar: unknown) {
-  if (registeredLanguages.has(name)) {
-    return;
-  }
-  SyntaxHighlighter.registerLanguage(name, grammar);
-  registeredLanguages.add(name);
+if (typeof window !== 'undefined') {
+  (window as Window & { Prism?: typeof Prism }).Prism = Prism;
 }
 
-registerLanguage('markdown', markdown);
-registerLanguage('md', markdown);
-registerLanguage('markup', markup);
-registerLanguage('html', markup);
-registerLanguage('xml', markup);
-registerLanguage('css', css);
-registerLanguage('clike', clike);
-registerLanguage('javascript', javascript);
-registerLanguage('js', javascript);
-registerLanguage('jsx', jsx);
-registerLanguage('typescript', typescript);
-registerLanguage('ts', typescript);
-registerLanguage('tsx', tsx);
-registerLanguage('json', json);
-registerLanguage('bash', bash);
-registerLanguage('sh', bash);
-registerLanguage('python', python);
-registerLanguage('py', python);
-registerLanguage('sql', sql);
-registerLanguage('yaml', yaml);
-registerLanguage('yml', yaml);
-
-const languageAliasMap: Record<string, string> = {
-  md: 'markdown',
-  js: 'javascript',
-  ts: 'typescript',
-  py: 'python',
-  sh: 'bash',
-  yml: 'yaml'
-};
-
-function resolveLanguage(rawLanguage?: string): string | null {
+function resolveLanguage(rawLanguage?: string): string {
   if (!rawLanguage) {
-    return null;
+    return 'text';
   }
   const normalized = rawLanguage.toLowerCase();
-  const mapped = languageAliasMap[normalized] ?? normalized;
-  return registeredLanguages.has(mapped) ? mapped : null;
+  if (normalized === 'md') return 'markdown';
+  if (normalized === 'js') return 'javascript';
+  if (normalized === 'ts') return 'typescript';
+  if (normalized === 'py') return 'python';
+  if (normalized === 'sh') return 'bash';
+  if (normalized === 'yml') return 'yaml';
+  return normalized;
 }
 
 type WorkspaceMode = 'edit' | 'read';
