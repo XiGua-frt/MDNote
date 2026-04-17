@@ -319,7 +319,7 @@ function Sidebar({
 
     return (
       <div
-        className={`rounded-2xl border px-3 py-3 transition ${
+        className={`relative rounded-2xl border px-3 py-3 transition ${
           isActive
             ? 'border-[#58a6ff] bg-[#132238] text-indigo-100'
             : 'border-[#202833] bg-[#0c121a] text-slate-200 hover:border-[#314254] hover:bg-[#111927]'
@@ -331,20 +331,23 @@ function Sidebar({
           className="block w-full text-left"
         >
           <p className="truncate text-sm font-medium">{note.title}</p>
-          <p className="mt-1 text-xs text-slate-500">{formatDate(note.updatedAt)}</p>
-        </button>
-        <div className="mt-3 flex items-center justify-between">
-          <span className="text-[11px] uppercase tracking-[0.24em] text-slate-600">
+          <div className="mt-3 flex min-h-7 items-center justify-between pr-16">
+            <span className="text-[11px] uppercase tracking-[0.24em] text-slate-600">
             {isActive ? 'Active' : 'Note'}
-          </span>
-          <button
-            type="button"
-            onClick={() => onDeleteNote(note.id)}
-            className="rounded-full px-2.5 py-1 text-xs text-[#f85149] transition hover:bg-red-500/15 hover:text-red-300"
-          >
-            删除
-          </button>
-        </div>
+            </span>
+            <p className="text-xs text-slate-500">{formatDate(note.updatedAt)}</p>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDeleteNote(note.id);
+          }}
+          className="absolute bottom-2.5 right-2.5 rounded-full px-2.5 py-1 text-xs text-[#f85149] transition hover:bg-red-500/15 hover:text-red-300"
+        >
+          删除
+        </button>
       </div>
     );
   };
@@ -631,7 +634,7 @@ function Sidebar({
   };
 
   return (
-    <div className="flex h-full">
+    <div className="print-hide flex h-full">
       <aside className="flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-[#161b22] bg-[#04070b] py-4">
         <div className="flex flex-col items-center gap-3">
           <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#1e2632] bg-[#09111b] text-xs font-semibold uppercase tracking-[0.24em] text-slate-300">

@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import Editor from './components/Editor';
-import Preview from './components/Preview';
+import { useEffect, useMemo, useState } from 'react';
+import LiveMarkdownWorkspace from './components/LiveMarkdownWorkspace';
 import Sidebar from './components/Sidebar';
 import useLocalStorage from './hooks/useLocalStorage';
 import type { SidebarPanel } from './components/Sidebar';
@@ -10,7 +9,6 @@ import type { Note } from './types/note';
 const NOTES_STORAGE_KEY = 'mdnote-notes';
 const ACTIVE_NOTE_STORAGE_KEY = 'mdnote-active-note-id';
 const AUTHOR_PROFILE_STORAGE_KEY = 'mdnote-author-profile';
-const WORKSPACE_RATIO_STORAGE_KEY = 'mdnote-workspace-ratio';
 
 const INITIAL_MARKDOWN = `# MDNote
 
@@ -61,6 +59,11 @@ function extractTitle(content: string): string {
   return firstNonEmptyLine.replace(/^#+\s*/, '').slice(0, 40) || '未命名笔记';
 }
 
+function extractTitleFromFileName(fileName: string): string {
+  const stripped = fileName.replace(/\.(md|txt)$/i, '').trim();
+  return stripped.slice(0, 40) || '未命名笔记';
+}
+
 function createDefaultNote(): Note {
   const now = Date.now();
   return {
@@ -80,10 +83,6 @@ function createDefaultAuthorProfile(): AuthorProfile {
     wechatQrUrl: '/assets/qrcode.jpg',
     githubUrl: 'https://github.com'
   };
-}
-
-function clampRatio(value: number): number {
-  return Math.min(0.72, Math.max(0.28, value));
 }
 
 interface DashboardProps {
@@ -208,13 +207,7 @@ function App() {
     AUTHOR_PROFILE_STORAGE_KEY,
     createDefaultAuthorProfile()
   );
-  const [workspaceRatio, setWorkspaceRatio] = useLocalStorage<number>(
-    WORKSPACE_RATIO_STORAGE_KEY,
-    0.5
-  );
   const [activePanel, setActivePanel] = useState<SidebarPanel>('notes');
-  const [isResizing, setIsResizing] = useState<boolean>(false);
-  const workspaceRef = useRef<HTMLDivElement | null>(null);
 
   const orderedNotes = useMemo(
     () => [...notes].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -250,35 +243,6 @@ function App() {
       setActiveNoteId(notes[0]?.id ?? null);
     }
   }, [activeNoteId, notes, setActiveNoteId, setNotes]);
-
-  useEffect(() => {
-    if (!isResizing) {
-      return;
-    }
-
-    const handleMouseMove = (event: MouseEvent) => {
-      const container = workspaceRef.current;
-      if (!container) {
-        return;
-      }
-
-      const bounds = container.getBoundingClientRect();
-      const nextRatio = clampRatio((event.clientX - bounds.left) / bounds.width);
-      setWorkspaceRatio(nextRatio);
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizing, setWorkspaceRatio]);
 
   const handleCreateNote = () => {
     const newNote = createDefaultNote();
@@ -320,12 +284,41 @@ function App() {
     );
   };
 
+  const handleImportContent = (content: string, fileName?: string) => {
+    const resolvedTitle = fileName ? extractTitleFromFileName(fileName) : extractTitle(content);
+
+    if (!currentNote) {
+      const importedNote: Note = {
+        id: createId(),
+        title: resolvedTitle,
+        content,
+        updatedAt: Date.now()
+      };
+      setNotes((prevNotes) => [importedNote, ...prevNotes]);
+      setActiveNoteId(importedNote.id);
+      return;
+    }
+
+    setNotes((prevNotes) =>
+      prevNotes.map((note) =>
+        note.id === currentNote.id
+          ? {
+              ...note,
+              title: resolvedTitle || extractTitle(content),
+              content,
+              updatedAt: Date.now()
+            }
+          : note
+      )
+    );
+  };
+
   const handlePanelChange = (panel: SidebarPanel) => {
     setActivePanel((prevPanel) => (prevPanel === panel ? null : panel));
   };
 
   return (
-    <main className="h-screen overflow-hidden bg-[#05080d] text-slate-100">
+    <main className="app-shell h-screen overflow-hidden bg-[#05080d] text-slate-100">
       <div className="flex h-full min-h-0">
         <Sidebar
           notes={orderedNotes}
@@ -344,29 +337,14 @@ function App() {
 
         <div className="flex min-w-0 flex-1 flex-col">
           {currentNote ? (
-            <div ref={workspaceRef} className="flex h-full min-h-0 flex-col md:flex-row">
-              <div
-                className="min-h-0 md:h-full"
-                style={{ width: `calc(${workspaceRatio * 100}% - 4px)` }}
-              >
-                <Editor
-                  noteTitle={currentNote.title}
-                  value={currentNote.content}
-                  onChange={handleContentChange}
-                  zenMode={zenMode}
-                />
-              </div>
-              <button
-                type="button"
-                aria-label="拖拽调整编辑器与预览区宽度"
-                onMouseDown={() => setIsResizing(true)}
-                className="hidden w-2 shrink-0 cursor-col-resize border-l border-r border-[#1d2430] bg-[#0b1018] transition hover:bg-[#111824] md:block"
-              >
-                <span className="mx-auto block h-14 w-[3px] rounded-full bg-slate-700" />
-              </button>
-              <div className="min-h-0 flex-1">
-                <Preview content={currentNote.content} zenMode={zenMode} />
-              </div>
+            <div className="h-full min-h-0">
+              <LiveMarkdownWorkspace
+                noteTitle={currentNote.title}
+                value={currentNote.content}
+                onChange={handleContentChange}
+                onImportContent={handleImportContent}
+                zenMode={zenMode}
+              />
             </div>
           ) : (
             <WorkspaceDashboard

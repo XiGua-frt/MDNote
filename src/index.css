@@ -38,3 +38,94 @@ body {
     transform: translateX(-50%);
   }
 }
+
+@media screen {
+  .print-only {
+    display: none !important;
+  }
+}
+
+@media print {
+  @page {
+    margin: 14mm 12mm;
+  }
+
+  html,
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .app-shell {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .workspace-root,
+  .workspace-root > div,
+  .workspace-root article {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .print-hide {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-preview {
+    max-width: none !important;
+    color: #111827 !important;
+    background: #ffffff !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+
+  .print-preview h1,
+  .print-preview h2,
+  .print-preview h3,
+  .print-preview h4,
+  .print-preview h5,
+  .print-preview h6 {
+    color: #0f172a !important;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .print-preview p,
+  .print-preview li {
+    orphans: 3;
+    widows: 3;
+    color: #1f2937 !important;
+  }
+
+  .print-preview pre,
+  .print-preview code,
+  .print-preview blockquote,
+  .print-preview img,
+  .print-preview table {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-preview a[href]::after {
+    content: '' !important;
+  }
+
+  .print-preview a {
+    color: #1d4ed8 !important;
+    text-decoration: underline;
+  }
+}
