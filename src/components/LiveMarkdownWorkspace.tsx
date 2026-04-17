@@ -5,8 +5,11 @@ import CodeEditor from 'react-simple-code-editor';
 import Prism from 'prismjs';
 import ReactMarkdown from 'react-markdown';
 import { useReactToPrint } from 'react-to-print';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import {
+  atomDark,
+  resolvePrismLanguage,
+  SyntaxHighlighter
+} from '../lib/prismHighlighter';
 import 'prismjs/components/prism-markdown';
 import 'prismjs/themes/prism-tomorrow.css';
 
@@ -185,11 +188,11 @@ function LiveMarkdownWorkspace({
             <ReactMarkdown
               components={{
                 code({ className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || '');
-                  const language = match?.[1];
+                  const match = /language-([a-zA-Z0-9_-]+)/.exec(className || '');
+                  const language = resolvePrismLanguage(match?.[1]);
                   const text = String(children).replace(/\n$/, '');
 
-                  if (!language) {
+                  if (!language || !text.trim()) {
                     return (
                       <code className={className} {...props}>
                         {children}
@@ -238,11 +241,11 @@ function LiveMarkdownWorkspace({
         <ReactMarkdown
           components={{
             code({ className, children, ...props }) {
-              const match = /language-(\w+)/.exec(className || '');
-              const language = match?.[1];
+              const match = /language-([a-zA-Z0-9_-]+)/.exec(className || '');
+              const language = resolvePrismLanguage(match?.[1]);
               const text = String(children).replace(/\n$/, '');
 
-              if (!language) {
+              if (!language || !text.trim()) {
                 return (
                   <code className={className} {...props}>
                     {children}
