@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AUTHOR_PROFILE } from './config/author';
+import FeatureCarousel from './components/FeatureCarousel';
 import LiveMarkdownWorkspace from './components/LiveMarkdownWorkspace';
 import Sidebar from './components/Sidebar';
 import useLocalStorage from './hooks/useLocalStorage';
 import type { SidebarPanel } from './components/Sidebar';
-import type { AuthorProfile } from './types/authorProfile';
-import type { Note } from './types/note';
+import type { ImportedNoteDraft, Note } from './types/note';
 
 const NOTES_STORAGE_KEY = 'mdnote-notes';
 const ACTIVE_NOTE_STORAGE_KEY = 'mdnote-active-note-id';
-const AUTHOR_PROFILE_STORAGE_KEY = 'mdnote-author-profile';
 
 const INITIAL_MARKDOWN = `# MDNote
 
@@ -59,9 +59,13 @@ function extractTitle(content: string): string {
   return firstNonEmptyLine.replace(/^#+\s*/, '').slice(0, 40) || '未命名笔记';
 }
 
-function extractTitleFromFileName(fileName: string): string {
-  const stripped = fileName.replace(/\.(md|txt)$/i, '').trim();
-  return stripped.slice(0, 40) || '未命名笔记';
+function formatImportTimestamp(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
 function createDefaultNote(): Note {
@@ -71,17 +75,6 @@ function createDefaultNote(): Note {
     title: '新笔记',
     content: INITIAL_MARKDOWN,
     updatedAt: now
-  };
-}
-
-function createDefaultAuthorProfile(): AuthorProfile {
-  return {
-    name: 'Dali',
-    role: 'AI Agent 工程师',
-    bio: '这里不只有代码，还有我对 Agentic Workflow 的深度思考。',
-    wechatTitle: 'Agent 实战录',
-    wechatQrUrl: '/assets/qrcode.jpg',
-    githubUrl: 'https://github.com'
   };
 }
 
@@ -97,8 +90,8 @@ function WorkspaceDashboard({ notes, zenMode, onCreateNote, onSelectNote }: Dash
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-l border-[#161b22] bg-[radial-gradient(circle_at_top,#132034_0%,#0d1117_42%,#090c10_100%)]">
-      <div className="flex flex-1 flex-col justify-between gap-8 overflow-y-auto px-6 py-8 md:px-10">
-        <div className="space-y-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-8 md:px-10">
+        <div className="relative z-30 shrink-0 space-y-6">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full border border-[#30363d] bg-slate-950/70 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-slate-400">
               {zenMode ? 'Zen Mode' : 'Dashboard'}
@@ -107,11 +100,10 @@ function WorkspaceDashboard({ notes, zenMode, onCreateNote, onSelectNote }: Dash
           </div>
           <div className="max-w-3xl">
             <h1 className="text-3xl font-semibold tracking-tight text-slate-100 md:text-5xl">
-              双栏实时预览，让创作回归纯粹。
+            执笔入定，让思绪结构化。
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-400 md:text-base">
-              这里是你的 Markdown 灵感实验室。无论是撰写技术文档还是记录代码片段，
-              你所敲下的每一行文字，都会即刻呈现出最规范的视觉排版。支持全语法高亮，让逻辑清晰可见。
+            这里是你的灵感庇护所，实时预览让内容即刻成型，语法高亮让逻辑清晰可见。在这里，每一行文字都拥有它应有的规范美感。
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -134,7 +126,11 @@ function WorkspaceDashboard({ notes, zenMode, onCreateNote, onSelectNote }: Dash
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr_1fr]">
+        <div className="relative z-0 mt-10 flex min-h-0 flex-1 flex-col items-center justify-center py-6 md:mt-12 md:py-8">
+          <FeatureCarousel />
+        </div>
+
+        <div className="relative z-20 shrink-0 grid gap-4 xl:grid-cols-[1.15fr_0.85fr_1fr]">
           <section className="rounded-3xl border border-[#30363d] bg-slate-950/55 p-5">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-300">最近编辑</h2>
@@ -203,10 +199,6 @@ function App() {
   const [notes, setNotes] = useLocalStorage<Note[]>(NOTES_STORAGE_KEY, [createDefaultNote()]);
   const [activeNoteId, setActiveNoteId] = useLocalStorage<string | null>(ACTIVE_NOTE_STORAGE_KEY, null);
   const [searchKeyword, setSearchKeyword] = useLocalStorage<string>('mdnote-search', '');
-  const [authorProfile, setAuthorProfile] = useLocalStorage<AuthorProfile>(
-    AUTHOR_PROFILE_STORAGE_KEY,
-    createDefaultAuthorProfile()
-  );
   const [activePanel, setActivePanel] = useState<SidebarPanel>('notes');
 
   const orderedNotes = useMemo(
@@ -284,33 +276,32 @@ function App() {
     );
   };
 
-  const handleImportContent = (content: string, fileName?: string) => {
-    const resolvedTitle = fileName ? extractTitleFromFileName(fileName) : extractTitle(content);
+  const handleImportNotes = (drafts: ImportedNoteDraft[]) => {
+    if (drafts.length === 0) return;
 
-    if (!currentNote) {
-      const importedNote: Note = {
+    const now = Date.now();
+    const existingTitles = new Set(notes.map((note) => note.title));
+    const createdNotes: Note[] = drafts.map((draft, index) => {
+      let title = draft.title.slice(0, 40) || extractTitle(draft.content);
+      if (existingTitles.has(title)) {
+        // 避免覆盖同名笔记：拼接导入时间戳，若仍撞名再附加批量序号。
+        const suffix = formatImportTimestamp(now);
+        title = `${title}（导入 ${suffix}）`;
+        if (existingTitles.has(title)) {
+          title = `${title} #${index + 1}`;
+        }
+      }
+      existingTitles.add(title);
+      return {
         id: createId(),
-        title: resolvedTitle,
-        content,
-        updatedAt: Date.now()
+        title,
+        content: draft.content,
+        updatedAt: now + index
       };
-      setNotes((prevNotes) => [importedNote, ...prevNotes]);
-      setActiveNoteId(importedNote.id);
-      return;
-    }
+    });
 
-    setNotes((prevNotes) =>
-      prevNotes.map((note) =>
-        note.id === currentNote.id
-          ? {
-              ...note,
-              title: resolvedTitle || extractTitle(content),
-              content,
-              updatedAt: Date.now()
-            }
-          : note
-      )
-    );
+    setNotes((prevNotes) => [...createdNotes, ...prevNotes]);
+    setActiveNoteId(createdNotes[0].id);
   };
 
   const handlePanelChange = (panel: SidebarPanel) => {
@@ -325,14 +316,13 @@ function App() {
           searchResults={filteredNotes}
           activeNoteId={activeNoteId}
           searchKeyword={searchKeyword}
-          authorProfile={authorProfile}
+          authorProfile={AUTHOR_PROFILE}
           activePanel={activePanel}
           onPanelChange={handlePanelChange}
           onSearchChange={setSearchKeyword}
           onCreateNote={handleCreateNote}
           onSelectNote={setActiveNoteId}
           onDeleteNote={handleDeleteNote}
-          onAuthorProfileChange={setAuthorProfile}
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -342,7 +332,7 @@ function App() {
                 noteTitle={currentNote.title}
                 value={currentNote.content}
                 onChange={handleContentChange}
-                onImportContent={handleImportContent}
+                onImportNotes={handleImportNotes}
                 zenMode={zenMode}
               />
             </div>

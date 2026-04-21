@@ -17,7 +17,10 @@
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
     "react-simple-code-editor": "^0.14.1",
-    "react-to-print": "^3.0.5"
+    "react-to-print": "^3.0.5",
+    "rehype-raw": "^7.0.0",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",

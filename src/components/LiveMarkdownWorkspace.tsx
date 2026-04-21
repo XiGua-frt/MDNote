@@ -1,48 +1,27 @@
-import { useMemo, useRef, useState } from 'react';
-import { fileOpen } from 'browser-fs-access';
-import { Download, FileUp } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { directoryOpen, fileOpen } from 'browser-fs-access';
+import { ChevronDown, Download, FileUp, FolderUp, Loader2 } from 'lucide-react';
+import type { ImportedNoteDraft } from '../types/note';
 import CodeEditor from 'react-simple-code-editor';
-import Prism from 'prismjs';
+import Prism from '../prism-loader';
 import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+import rehypeRaw from 'rehype-raw';
 import { useReactToPrint } from 'react-to-print';
-import 'prismjs/components/prism-markdown';
-import 'prismjs/components/prism-markup';
-import 'prismjs/components/prism-css';
-import 'prismjs/components/prism-clike';
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-jsx';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-tsx';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-sql';
-import 'prismjs/components/prism-yaml';
-import 'prismjs/themes/prism-tomorrow.css';
+import { formatMarkdownSource } from '../utils/formatMarkdownSource';
+import { coercePrismLanguage, resolvePrismLanguage } from '../utils/resolvePrismLanguage';
 
-if (typeof window !== 'undefined') {
-  (window as Window & { Prism?: typeof Prism }).Prism = Prism;
-}
-
-function resolveLanguage(rawLanguage?: string): string {
-  if (!rawLanguage) {
-    return 'text';
-  }
-  const normalized = rawLanguage.toLowerCase();
-  if (normalized === 'md') return 'markdown';
-  if (normalized === 'js') return 'javascript';
-  if (normalized === 'ts') return 'typescript';
-  if (normalized === 'py') return 'python';
-  if (normalized === 'sh') return 'bash';
-  if (normalized === 'yml') return 'yaml';
-  return normalized;
-}
-
-function renderHighlightedCodeBlock(text: string, language: string, className?: string) {
-  const grammar =
-    Prism.languages[language as keyof typeof Prism.languages] ?? Prism.languages.markup;
-
+function renderHighlightedCodeBlock(text: string, canonicalLanguage: string, className?: string) {
   try {
+    const language = coercePrismLanguage(canonicalLanguage);
+    const grammar =
+      (Prism.languages[language as keyof typeof Prism.languages] as (typeof Prism)['languages']['markup'] | undefined) ??
+      Prism.languages.markup;
+    if (!grammar) {
+      throw new Error('Prism markup grammar unavailable');
+    }
     const html = Prism.highlight(text, grammar, language);
     return (
       <pre className={className}>
@@ -59,14 +38,95 @@ function renderHighlightedCodeBlock(text: string, language: string, className?: 
   }
 }
 
+const markdownPlugins = [remarkGfm, remarkBreaks] as const;
+const rehypePlugins = [rehypeRaw] as const;
+
+const markdownComponents: Components = {
+  table({ children, ...props }) {
+    return (
+      <div style={{ display: 'block' }} className="my-6 w-full max-w-full overflow-x-auto">
+        <table {...props}>{children}</table>
+      </div>
+    );
+  },
+  code({ className, children, ...props }) {
+    const match = /language-([a-zA-Z0-9_-]+)/.exec(className || '');
+    const text = String(children).replace(/\n$/, '');
+
+    if (!text.trim() || !match?.[1]) {
+      return (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      );
+    }
+
+    return renderHighlightedCodeBlock(text, resolvePrismLanguage(match[1]), className);
+  }
+};
+
 type WorkspaceMode = 'edit' | 'read';
 
 interface LiveMarkdownWorkspaceProps {
   noteTitle: string;
   value: string;
   onChange: (value: string) => void;
-  onImportContent: (content: string, fileName?: string) => void;
+  onImportNotes: (drafts: ImportedNoteDraft[]) => void;
   zenMode?: boolean;
+}
+
+const IMPORTABLE_EXTENSIONS = ['.md', '.txt'] as const;
+
+function hasImportableExtension(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  return IMPORTABLE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function stripExtension(fileName: string): string {
+  return fileName.replace(/\.(md|txt)$/i, '').trim() || '未命名笔记';
+}
+
+const isDirectoryPickerSupported =
+  typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+
+async function buildDraftsFromFiles(files: readonly File[]): Promise<ImportedNoteDraft[]> {
+  const importable = files.filter((file) => hasImportableExtension(file.name));
+  if (importable.length === 0) {
+    return [];
+  }
+
+  const readResults = await Promise.all(
+    importable.map(async (file) => {
+      try {
+        const text = await file.text();
+        return {
+          name: file.name,
+          size: file.size,
+          content: formatMarkdownSource(text)
+        };
+      } catch (error) {
+        console.warn(`[MDNote] 读取文件失败：${file.name}`, error);
+        return null;
+      }
+    })
+  );
+
+  // In-batch 去重：按 name+size 作为轻量指纹，避免同源重复写入。
+  const seen = new Set<string>();
+  const drafts: ImportedNoteDraft[] = [];
+  for (const item of readResults) {
+    if (!item) continue;
+    const fingerprint = `${item.name}|${item.size}`;
+    if (seen.has(fingerprint)) continue;
+    seen.add(fingerprint);
+    drafts.push({
+      title: stripExtension(item.name),
+      content: item.content,
+      sourceName: item.name,
+      sourceSize: item.size
+    });
+  }
+  return drafts;
 }
 
 function EditIcon() {
@@ -100,12 +160,33 @@ function LiveMarkdownWorkspace({
   noteTitle,
   value,
   onChange,
-  onImportContent,
+  onImportNotes,
   zenMode = false
 }: LiveMarkdownWorkspaceProps) {
   const [mode, setMode] = useState<WorkspaceMode>('edit');
   const [copyLabel, setCopyLabel] = useState<string>('复制');
+  const [isImporting, setIsImporting] = useState(false);
+  const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
+  const [importHint, setImportHint] = useState<string | null>(null);
   const printRef = useRef<HTMLElement | null>(null);
+  const importMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isImportMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!importMenuRef.current?.contains(event.target as Node)) {
+        setIsImportMenuOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handlePointerDown);
+    return () => window.removeEventListener('mousedown', handlePointerDown);
+  }, [isImportMenuOpen]);
+
+  useEffect(() => {
+    if (!importHint) return;
+    const timer = window.setTimeout(() => setImportHint(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [importHint]);
 
   const stats = useMemo(() => {
     const lines = value.length === 0 ? 1 : value.split('\n').length;
@@ -113,6 +194,13 @@ function LiveMarkdownWorkspace({
     const words = value.trim().length === 0 ? 0 : value.trim().split(/\s+/).length;
     return { lines, characters, words };
   }, [value]);
+
+  const markdownForPreview = useMemo(() => formatMarkdownSource(value), [value]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || mode !== 'read') return;
+    console.log('[MDNote] formatMarkdownSource → react-markdown input:\n', markdownForPreview);
+  }, [markdownForPreview, mode]);
 
   const handleCopy = async () => {
     try {
@@ -126,21 +214,64 @@ function LiveMarkdownWorkspace({
     }
   };
 
-  const handleImport = async () => {
-    try {
-      const file = await fileOpen({
-        extensions: ['.md', '.txt'],
-        mimeTypes: ['text/markdown', 'text/plain']
-      });
-      const content = await file.text();
-      onImportContent(content, file.name);
-      setMode('edit');
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return;
-      }
+  const isUserCancelError = (error: unknown): boolean => {
+    if (error instanceof DOMException && error.name === 'AbortError') return true;
+    if (error instanceof Error && /cancel|abort/i.test(error.message)) return true;
+    return false;
+  };
 
-      console.error('Import failed', error);
+  const commitDrafts = (drafts: ImportedNoteDraft[], sourceLabel: string) => {
+    if (drafts.length === 0) {
+      setImportHint(`未在${sourceLabel}中找到 .md / .txt 文件`);
+      return;
+    }
+    onImportNotes(drafts);
+    setImportHint(`已导入 ${drafts.length} 条笔记`);
+    setMode('edit');
+  };
+
+  const handleImportFiles = async () => {
+    setIsImportMenuOpen(false);
+    if (isImporting) return;
+    setIsImporting(true);
+    try {
+      const files = await fileOpen({
+        extensions: ['.md', '.txt'],
+        mimeTypes: ['text/markdown', 'text/plain'],
+        description: 'Markdown / 纯文本笔记',
+        multiple: true
+      });
+      const fileList = Array.isArray(files) ? files : [files];
+      const drafts = await buildDraftsFromFiles(fileList);
+      commitDrafts(drafts, '所选文件');
+    } catch (error) {
+      if (isUserCancelError(error)) return;
+      console.warn('[MDNote] 批量导入文件失败', error);
+      setImportHint('导入文件失败，请重试');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleImportDirectory = async () => {
+    setIsImportMenuOpen(false);
+    if (isImporting) return;
+    setIsImporting(true);
+    try {
+      // 特性检测：若浏览器不支持 showDirectoryPicker，browser-fs-access 会自动降级到
+      // <input webkitdirectory>；这里仅做一次 UI 提示，避免用户困惑。
+      if (!isDirectoryPickerSupported) {
+        console.info('[MDNote] 当前浏览器不支持目录选择 API，已降级为 webkitdirectory 选择器。');
+      }
+      const files = await directoryOpen({ recursive: true });
+      const drafts = await buildDraftsFromFiles(files as File[]);
+      commitDrafts(drafts, '所选文件夹');
+    } catch (error) {
+      if (isUserCancelError(error)) return;
+      console.warn('[MDNote] 批量导入文件夹失败', error);
+      setImportHint('导入文件夹失败，请重试');
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -177,14 +308,55 @@ function LiveMarkdownWorkspace({
             <h2 className="mt-1 truncate text-base font-semibold text-slate-100">{noteTitle}</h2>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleImport}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[#30363d] bg-[#0a1017] px-3 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white"
-            >
-              <FileUp className="h-4 w-4" />
-              导入
-            </button>
+            <div ref={importMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setIsImportMenuOpen((prev) => !prev)}
+                disabled={isImporting}
+                aria-haspopup="menu"
+                aria-expanded={isImportMenuOpen}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#30363d] bg-[#0a1017] px-3 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isImporting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileUp className="h-4 w-4" />
+                )}
+                {isImporting ? '导入中…' : '导入'}
+                {!isImporting ? <ChevronDown className="h-3.5 w-3.5 opacity-70" /> : null}
+              </button>
+              {isImportMenuOpen && !isImporting ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 z-30 mt-2 w-44 overflow-hidden rounded-2xl border border-[#30363d] bg-[#0b1220] shadow-xl shadow-black/40"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={handleImportFiles}
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-200 transition hover:bg-[#132238]"
+                  >
+                    <FileUp className="h-4 w-4 text-slate-400" />
+                    导入文件(s)
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={handleImportDirectory}
+                    title={isDirectoryPickerSupported ? undefined : '当前浏览器将降级使用目录选择器'}
+                    className="flex w-full items-center gap-2 border-t border-[#1b2433] px-3 py-2.5 text-left text-xs text-slate-200 transition hover:bg-[#132238]"
+                  >
+                    <FolderUp className="h-4 w-4 text-slate-400" />
+                    导入文件夹
+                  </button>
+                </div>
+              ) : null}
+              {importHint ? (
+                <span className="pointer-events-none absolute right-0 top-full mt-2 whitespace-nowrap rounded-md border border-[#30363d] bg-[#0b1220] px-2 py-1 text-[11px] text-slate-200 shadow-lg">
+                  {importHint}
+                </span>
+              ) : null}
+            </div>
             <button
               type="button"
               onClick={() => setMode((prevMode) => (prevMode === 'edit' ? 'read' : 'edit'))}
@@ -213,13 +385,25 @@ function LiveMarkdownWorkspace({
         </div>
       </div>
 
-      <div className="print-hide min-h-0 flex-1 px-5 py-5">
+      <div className="print-hide min-h-0 flex-1">
         {mode === 'edit' ? (
-          <div className="h-full overflow-y-auto rounded-[28px] border border-[#202833] bg-[#070c12] p-5">
+          <div className="h-full overflow-y-auto px-5 py-5">
+            <div className="h-full rounded-[28px] border border-[#202833] bg-[#070c12] p-5">
             <CodeEditor
               value={value}
               onValueChange={onChange}
-              highlight={(code) => Prism.highlight(code, Prism.languages.markdown, 'markdown')}
+              highlight={(code) => {
+                try {
+                  const md = coercePrismLanguage('markdown');
+                  const grammar =
+                    Prism.languages[md as keyof typeof Prism.languages] ?? Prism.languages.markup;
+                  if (!grammar) return code;
+                  return Prism.highlight(code, grammar, md);
+                } catch (error) {
+                  console.error('Editor Prism highlight failed:', error);
+                  return code;
+                }
+              }}
               padding={0}
               textareaClassName="outline-none"
               className="min-h-full font-mono text-sm leading-7 text-slate-200"
@@ -228,31 +412,23 @@ function LiveMarkdownWorkspace({
                   'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
               }}
             />
+            </div>
           </div>
         ) : (
-          <article className="prose prose-invert prose-pre:bg-slate-900 prose-pre:p-5 prose-pre:rounded-lg prose-pre:border prose-pre:border-zinc-700/50 prose-pre:shadow-inner prose-code:bg-transparent h-full max-w-none overflow-y-auto rounded-[28px] border border-[#202833] bg-[#070c12] p-5">
-            <ReactMarkdown
-              components={{
-                code({ className, children, ...props }) {
-                  const match = /language-([a-zA-Z0-9_-]+)/.exec(className || '');
-                  const language = resolveLanguage(match?.[1]);
-                  const text = String(children).replace(/\n$/, '');
-
-                  if (!text.trim() || !match?.[1]) {
-                    return (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    );
-                  }
-
-                  return renderHighlightedCodeBlock(text, language, className);
-                }
-              }}
-            >
-              {value}
-            </ReactMarkdown>
-          </article>
+          <Fragment>
+            {/* react-markdown 产出块级节点，外层用 article，勿包在段落等行内容器内 */}
+            <div className="h-full overflow-y-auto px-6 py-10 md:px-12 lg:px-20">
+              <article className="prose prose-base md:prose-lg prose-invert prose-pre:bg-slate-900 prose-pre:p-5 prose-pre:rounded-lg prose-pre:border prose-pre:border-zinc-700/50 prose-pre:shadow-inner prose-code:bg-transparent mx-auto w-full max-w-5xl overflow-x-auto rounded-[28px] border border-[#202833] bg-[#070c12] p-6 md:p-8">
+                <ReactMarkdown
+                  remarkPlugins={[...markdownPlugins]}
+                  rehypePlugins={[...rehypePlugins]}
+                  components={markdownComponents}
+                >
+                  {markdownForPreview}
+                </ReactMarkdown>
+              </article>
+            </div>
+          </Fragment>
         )}
       </div>
 
@@ -261,27 +437,16 @@ function LiveMarkdownWorkspace({
         {mode === 'edit' ? '编辑' : '阅读'}
       </div>
 
-      <article ref={printRef} className="print-only print-preview prose prose-code:bg-transparent max-w-none px-10 py-8">
+      <article
+        ref={printRef}
+        className="print-only print-preview prose prose-code:bg-transparent max-w-none overflow-x-auto px-10 py-8"
+      >
         <ReactMarkdown
-          components={{
-            code({ className, children, ...props }) {
-              const match = /language-([a-zA-Z0-9_-]+)/.exec(className || '');
-              const language = resolveLanguage(match?.[1]);
-              const text = String(children).replace(/\n$/, '');
-
-              if (!text.trim() || !match?.[1]) {
-                return (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                );
-              }
-
-              return renderHighlightedCodeBlock(text, language, className);
-            }
-          }}
+          remarkPlugins={[...markdownPlugins]}
+          rehypePlugins={[...rehypePlugins]}
+          components={markdownComponents}
         >
-          {value}
+          {markdownForPreview}
         </ReactMarkdown>
       </article>
 

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { ChangeEvent, FormEvent, SVGProps } from 'react';
+import { useMemo } from 'react';
+import type { SVGProps } from 'react';
 import type { AuthorProfile } from '../types/authorProfile';
 import type { Note } from '../types/note';
+import logoImage from '../../assets/logo.jpg';
 
-export type SidebarPanel = 'notes' | 'search' | 'author' | 'wechat' | 'settings' | null;
+export type SidebarPanel = 'notes' | 'search' | 'author' | 'wechat' | null;
 
 interface SidebarProps {
   notes: Note[];
@@ -17,7 +18,7 @@ interface SidebarProps {
   onCreateNote: () => void;
   onSelectNote: (noteId: string | null) => void;
   onDeleteNote: (noteId: string) => void;
-  onAuthorProfileChange: (profile: AuthorProfile) => void;
+  onNavigateHome?: () => void;
 }
 
 interface IconProps extends SVGProps<SVGSVGElement> {
@@ -126,27 +127,6 @@ function WeChatIcon({ size = 18, ...props }: IconProps) {
   );
 }
 
-function SettingsIcon({ size = 18, ...props }: IconProps) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      width={size}
-      height={size}
-      aria-hidden="true"
-      {...props}
-    >
-      <path d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 0 0 12 8.5Z" />
-      <path d="M4.5 12h2.1m10.8 0h2.1M12 4.5v2.1M12 17.4v2.1M6.7 6.7l1.5 1.5m7.6 7.6 1.5 1.5M17.3 6.7l-1.5 1.5m-7.6 7.6-1.5 1.5" />
-      <circle cx="12" cy="12" r="8.25" />
-    </svg>
-  );
-}
-
 function GitHubIcon({ size = 16, ...props }: IconProps) {
   return (
     <svg
@@ -225,16 +205,8 @@ function Sidebar({
   onCreateNote,
   onSelectNote,
   onDeleteNote,
-  onAuthorProfileChange
+  onNavigateHome
 }: SidebarProps) {
-  const [draftProfile, setDraftProfile] = useState<AuthorProfile>(authorProfile);
-
-  useEffect(() => {
-    if (activePanel === 'settings') {
-      setDraftProfile(authorProfile);
-    }
-  }, [activePanel, authorProfile]);
-
   const noteMetrics = useMemo(
     () => ({
       total: notes.length,
@@ -243,42 +215,27 @@ function Sidebar({
     [notes]
   );
 
-  const handleProfileFieldChange =
-    (field: keyof AuthorProfile) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      setDraftProfile((prevProfile) => ({
-        ...prevProfile,
-        [field]: event.target.value
-      }));
-    };
-
-  const handleProfileSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    onAuthorProfileChange({
-      ...draftProfile,
-      name: draftProfile.name.trim() || authorProfile.name,
-      role: draftProfile.role.trim() || authorProfile.role,
-      bio: draftProfile.bio.trim() || authorProfile.bio,
-      wechatTitle: draftProfile.wechatTitle.trim() || authorProfile.wechatTitle,
-      githubUrl: draftProfile.githubUrl.trim() || authorProfile.githubUrl
-    });
+  const handleLogoClick = () => {
+    onSelectNote(null);
+    onNavigateHome?.();
   };
 
   const renderQrCard = () => {
     if (authorProfile.wechatQrUrl.trim()) {
       return (
-        <div className="rounded-[28px] border border-[#30363d] bg-white p-4 shadow-2xl shadow-black/25">
+        <div className="mx-auto rounded-[28px] border border-[#30363d] bg-white p-4 shadow-2xl shadow-black/25">
           <img
             src={authorProfile.wechatQrUrl}
             alt={`${authorProfile.wechatTitle} 二维码`}
-            className="h-48 w-48 rounded-2xl object-cover"
+            className="mx-auto h-48 w-48 rounded-2xl object-cover"
           />
         </div>
       );
     }
 
     return (
-      <div className="rounded-[28px] border border-[#30363d] bg-[radial-gradient(circle_at_top,#1b2b1f_0%,#10161d_55%,#0b1117_100%)] p-4">
-        <svg viewBox="0 0 120 120" className="h-48 w-48 rounded-2xl bg-white p-4 text-slate-950">
+      <div className="mx-auto rounded-[28px] border border-[#30363d] bg-[radial-gradient(circle_at_top,#1b2b1f_0%,#10161d_55%,#0b1117_100%)] p-4">
+        <svg viewBox="0 0 120 120" className="mx-auto h-48 w-48 rounded-2xl bg-white p-4 text-slate-950">
           <rect x="8" y="8" width="30" height="30" rx="4" fill="currentColor" />
           <rect x="14" y="14" width="18" height="18" rx="2" fill="white" />
           <rect x="20" y="20" width="6" height="6" rx="1.5" fill="currentColor" />
@@ -525,8 +482,8 @@ function Sidebar({
             description="二维码配合近期内容标题滚动，形成更像产品而不是弹窗的展示。"
             onClose={() => onPanelChange(null)}
           />
-          <div className="flex flex-1 flex-col items-center justify-between gap-6 overflow-hidden px-5 py-6">
-            <div className="space-y-4 text-center">
+          <div className="flex flex-1 flex-col justify-between gap-6 overflow-hidden px-5 py-6">
+            <div className="flex w-full flex-col items-center justify-center space-y-4 text-center">
               <p className="text-sm text-slate-400">扫码获取 Agent、RAG 与工程化实践更新</p>
               {renderQrCard()}
               <p className="text-base font-medium text-slate-100">公众号：{authorProfile.wechatTitle}</p>
@@ -546,90 +503,6 @@ function Sidebar({
       );
     }
 
-    if (activePanel === 'settings') {
-      return (
-        <>
-          <PanelHeader
-            title="设置"
-            description="在这里编辑作者资料、公众号信息和 GitHub 地址。"
-            onClose={() => onPanelChange(null)}
-          />
-          <form className="flex flex-1 flex-col overflow-hidden" onSubmit={handleProfileSubmit}>
-            <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-              <label className="block">
-                <span className="mb-1.5 block text-xs uppercase tracking-[0.24em] text-slate-500">
-                  作者名称
-                </span>
-                <input
-                  value={draftProfile.name}
-                  onChange={handleProfileFieldChange('name')}
-                  className="w-full rounded-2xl border border-[#30363d] bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-slate-500"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs uppercase tracking-[0.24em] text-slate-500">
-                  身份标签
-                </span>
-                <input
-                  value={draftProfile.role}
-                  onChange={handleProfileFieldChange('role')}
-                  className="w-full rounded-2xl border border-[#30363d] bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-slate-500"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs uppercase tracking-[0.24em] text-slate-500">
-                  个人简介
-                </span>
-                <textarea
-                  value={draftProfile.bio}
-                  onChange={handleProfileFieldChange('bio')}
-                  className="min-h-28 w-full rounded-2xl border border-[#30363d] bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-slate-500"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs uppercase tracking-[0.24em] text-slate-500">
-                  公众号名称
-                </span>
-                <input
-                  value={draftProfile.wechatTitle}
-                  onChange={handleProfileFieldChange('wechatTitle')}
-                  className="w-full rounded-2xl border border-[#30363d] bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-slate-500"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs uppercase tracking-[0.24em] text-slate-500">
-                  二维码图片链接
-                </span>
-                <input
-                  value={draftProfile.wechatQrUrl}
-                  onChange={handleProfileFieldChange('wechatQrUrl')}
-                  className="w-full rounded-2xl border border-[#30363d] bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-slate-500"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs uppercase tracking-[0.24em] text-slate-500">
-                  GitHub 链接
-                </span>
-                <input
-                  value={draftProfile.githubUrl}
-                  onChange={handleProfileFieldChange('githubUrl')}
-                  className="w-full rounded-2xl border border-[#30363d] bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-slate-500"
-                />
-              </label>
-            </div>
-            <div className="border-t border-[#202833] px-5 py-4">
-              <button
-                type="submit"
-                className="w-full rounded-2xl bg-[linear-gradient(135deg,#60a5fa_0%,#2563eb_100%)] px-4 py-3 text-sm font-medium text-white transition hover:brightness-110"
-              >
-                保存设置
-              </button>
-            </div>
-          </form>
-        </>
-      );
-    }
-
     return null;
   };
 
@@ -637,9 +510,15 @@ function Sidebar({
     <div className="print-hide flex h-full">
       <aside className="flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-[#161b22] bg-[#04070b] py-4">
         <div className="flex flex-col items-center gap-3">
-          <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#1e2632] bg-[#09111b] text-xs font-semibold uppercase tracking-[0.24em] text-slate-300">
-            MD
-          </div>
+          <button
+            type="button"
+            aria-label="返回首页"
+            title="返回首页"
+            onClick={handleLogoClick}
+            className="mb-2 flex h-11 w-11 items-center justify-center rounded-2xl border border-[#1e2632] bg-[#09111b] transition duration-200 hover:scale-105 hover:brightness-110"
+          >
+            <img src={logoImage} alt="MDNote Logo" className="h-8 w-auto object-contain" />
+          </button>
           <NavButton
             active={activePanel === 'notes'}
             label="笔记列表"
@@ -666,12 +545,7 @@ function Sidebar({
           />
         </div>
 
-        <NavButton
-          active={activePanel === 'settings'}
-          label="设置"
-          onClick={() => onPanelChange('settings')}
-          icon={<SettingsIcon />}
-        />
+        <div className="h-11 w-11" aria-hidden="true" />
       </aside>
 
       <div

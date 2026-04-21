@@ -24,6 +24,58 @@ body {
   box-sizing: border-box;
 }
 
+/* Prose Markdown: keep table layout; avoid aggressive breaks inside cells */
+.prose table {
+  display: table;
+  width: 100%;
+  table-layout: auto;
+}
+
+.prose :where(th, td) {
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.prose {
+  line-height: 1.8;
+  word-wrap: break-word;
+}
+
+.prose pre {
+  line-height: 1.6;
+}
+
+/* Prism（okaidia）+ 暗色 prose：提高代码块对比与滚动体验 */
+.prose-invert pre[class*='language-'] {
+  background-color: rgb(12 17 24) !important;
+  color: rgb(232 240 248) !important;
+  border-radius: 0.75rem;
+  padding: 1.125rem 1.25rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+}
+
+.prose-invert pre[class*='language-']::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.prose-invert pre[class*='language-']::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+
+.prose-invert pre[class*='language-'] .token.comment,
+.prose-invert pre[class*='language-'] .token.prolog,
+.prose-invert pre[class*='language-'] .token.cdata {
+  color: rgb(158 178 201) !important;
+}
+
+.prose-invert pre[class*='language-'] .token.punctuation {
+  color: rgb(210 220 235) !important;
+}
+
 .wechat-marquee {
   display: inline-block;
   min-width: max-content;
@@ -86,7 +138,8 @@ body {
   }
 
   .print-preview {
-    max-width: none !important;
+    max-width: 860px !important;
+    margin: 0 auto !important;
     color: #111827 !important;
     background: #ffffff !important;
     opacity: 1 !important;

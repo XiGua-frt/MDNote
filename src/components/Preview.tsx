@@ -1,44 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-markdown';
-import 'prismjs/components/prism-markup';
-import 'prismjs/components/prism-css';
-import 'prismjs/components/prism-clike';
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-jsx';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-tsx';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-sql';
-import 'prismjs/components/prism-yaml';
-import 'prismjs/themes/prism-tomorrow.css';
+import type { Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+import rehypeRaw from 'rehype-raw';
+import Prism from '../prism-loader';
+import { formatMarkdownSource } from '../utils/formatMarkdownSource';
+import { coercePrismLanguage, resolvePrismLanguage } from '../utils/resolvePrismLanguage';
 
-if (typeof window !== 'undefined') {
-  (window as Window & { Prism?: typeof Prism }).Prism = Prism;
-}
-
-function resolveLanguage(rawLanguage?: string): string {
-  if (!rawLanguage) {
-    return 'text';
-  }
-  const normalized = rawLanguage.toLowerCase();
-  if (normalized === 'md') return 'markdown';
-  if (normalized === 'js') return 'javascript';
-  if (normalized === 'ts') return 'typescript';
-  if (normalized === 'py') return 'python';
-  if (normalized === 'sh') return 'bash';
-  if (normalized === 'yml') return 'yaml';
-  return normalized;
-}
-
-function renderHighlightedCodeBlock(text: string, language: string, className?: string) {
-  const grammar =
-    Prism.languages[language as keyof typeof Prism.languages] ?? Prism.languages.markup;
-
+function renderHighlightedCodeBlock(text: string, canonicalLanguage: string, className?: string) {
   try {
+    const language = coercePrismLanguage(canonicalLanguage);
+    const grammar =
+      (Prism.languages[language as keyof typeof Prism.languages] as (typeof Prism)['languages']['markup'] | undefined) ??
+      Prism.languages.markup;
+    if (!grammar) {
+      throw new Error('Prism markup grammar unavailable');
+    }
     const html = Prism.highlight(text, grammar, language);
     return (
       <pre className={className}>
@@ -55,6 +33,33 @@ function renderHighlightedCodeBlock(text: string, language: string, className?: 
   }
 }
 
+const markdownPlugins = [remarkGfm, remarkBreaks] as const;
+const rehypePlugins = [rehypeRaw] as const;
+
+const markdownComponents: Components = {
+  table({ children, ...props }) {
+    return (
+      <div style={{ display: 'block' }} className="my-6 w-full max-w-full overflow-x-auto">
+        <table {...props}>{children}</table>
+      </div>
+    );
+  },
+  code({ className, children, ...props }) {
+    const match = /language-([a-zA-Z0-9_-]+)/.exec(className || '');
+    const text = String(children).replace(/\n$/, '');
+
+    if (!text.trim() || !match?.[1]) {
+      return (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      );
+    }
+
+    return renderHighlightedCodeBlock(text, resolvePrismLanguage(match[1]), className);
+  }
+};
+
 interface PreviewProps {
   content: string;
   zenMode?: boolean;
@@ -62,6 +67,12 @@ interface PreviewProps {
 
 function Preview({ content, zenMode = false }: PreviewProps) {
   const [copyLabel, setCopyLabel] = useState<string>('复制');
+  const markdownForPreview = useMemo(() => formatMarkdownSource(content), [content]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    console.log('[MDNote][Preview] formatMarkdownSource → react-markdown input:\n', markdownForPreview);
+  }, [markdownForPreview]);
 
   const handleCopy = async () => {
     try {
@@ -92,29 +103,15 @@ function Preview({ content, zenMode = false }: PreviewProps) {
           {copyLabel}
         </button>
       </div>
-      <div className="min-h-0 flex-1 px-5 py-5">
-        <article className="prose prose-invert h-full max-w-none overflow-y-auto rounded-[28px] border border-[#202833] bg-[#070c12] p-5">
-        <ReactMarkdown
-          components={{
-            code({ className, children, ...props }) {
-              const match = /language-([a-zA-Z0-9_-]+)/.exec(className || '');
-              const language = resolveLanguage(match?.[1]);
-              const text = String(children).replace(/\n$/, '');
-
-              if (!text.trim() || !match?.[1]) {
-                return (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                );
-              }
-
-              return renderHighlightedCodeBlock(text, language, className);
-            }
-          }}
-        >
-          {content}
-        </ReactMarkdown>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-10 md:px-12 lg:px-20">
+        <article className="prose prose-base md:prose-lg prose-invert mx-auto w-full max-w-5xl overflow-x-auto rounded-[28px] border border-[#202833] bg-[#070c12] p-6 md:p-8">
+          <ReactMarkdown
+            remarkPlugins={[...markdownPlugins]}
+            rehypePlugins={[...rehypePlugins]}
+            components={markdownComponents}
+          >
+            {markdownForPreview}
+          </ReactMarkdown>
         </article>
       </div>
     </section>

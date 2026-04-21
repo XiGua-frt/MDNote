@@ -4,3 +4,10 @@ export interface Note {
   content: string;
   updatedAt: number;
 }
+
+export interface ImportedNoteDraft {
+  title: string;
+  content: string;
+  sourceName: string;
+  sourceSize: number;
+}
