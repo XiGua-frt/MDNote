@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode, SVGProps } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DndContext,
   PointerSensor,
@@ -64,6 +65,101 @@ function DroppableFolderShell({ folderId, disabled, children }: DroppableFolderS
     disabled
   });
   return <div ref={setNodeRef}>{children({ isOver })}</div>;
+}
+
+type DeleteTarget =
+  | { kind: 'note'; noteId: string; title: string }
+  | { kind: 'folder'; folderId: string; name: string };
+
+interface ConfirmModalProps {
+  open: boolean;
+  title: string;
+  description: ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmModal({
+  open,
+  title,
+  description,
+  confirmLabel = '删除',
+  cancelLabel = '取消',
+  onConfirm,
+  onCancel
+}: ConfirmModalProps) {
+  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    confirmButtonRef.current?.focus();
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCancel();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        onConfirm();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus?.();
+    };
+  }, [open, onCancel, onConfirm]);
+
+  if (!open) return null;
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="mdnote-confirm-title"
+      className="fixed inset-0 z-[60] flex items-center justify-center px-4"
+    >
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onCancel}
+        aria-hidden="true"
+      />
+      <div className="relative w-full max-w-sm rounded-2xl border border-[#30363d] bg-[#0b1220] p-6 shadow-2xl shadow-black/60">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-red-500/40 bg-red-500/10 text-red-300">
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 id="mdnote-confirm-title" className="text-base font-semibold text-slate-100">
+              {title}
+            </h3>
+            <div className="mt-2 text-sm leading-6 text-slate-400">{description}</div>
+          </div>
+        </div>
+        <div className="mt-6 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-full border border-[#30363d] px-4 py-1.5 text-sm text-slate-300 transition hover:border-slate-500 hover:text-white"
+          >
+            {cancelLabel}
+          </button>
+          <button
+            ref={confirmButtonRef}
+            type="button"
+            onClick={onConfirm}
+            className="rounded-full bg-red-500/90 px-4 py-1.5 text-sm font-medium text-white shadow-[0_4px_16px_rgba(239,68,68,0.35)] transition hover:bg-red-500"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
 }
 
 export type SidebarPanel = 'notes' | 'search' | 'author' | 'wechat' | null;
@@ -297,8 +393,54 @@ function Sidebar({
   const [folderDraftName, setFolderDraftName] = useState('');
   const [moveMenuNoteId, setMoveMenuNoteId] = useState<string | null>(null);
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const moveMenuRef = useRef<HTMLDivElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+
+  const requestDeleteNote = (note: Note) => {
+    setMoveMenuNoteId(null);
+    setDeleteTarget({ kind: 'note', noteId: note.id, title: note.title || '未命名笔记' });
+  };
+
+  const requestDeleteFolder = (folder: Folder) => {
+    setDeleteTarget({ kind: 'folder', folderId: folder.id, name: folder.name || '未命名文件夹' });
+  };
+
+  const closeDeleteConfirm = () => {
+    setDeleteTarget(null);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    if (deleteTarget.kind === 'note') {
+      onDeleteNote(deleteTarget.noteId);
+    } else {
+      onDeleteFolder(deleteTarget.folderId);
+    }
+    setDeleteTarget(null);
+  };
+
+  // 估算文件夹级联删除时将波及多少后代文件夹 / 笔记，用于弹窗二次确认文案。
+  const folderDeleteImpact = useMemo(() => {
+    if (deleteTarget?.kind !== 'folder') return null;
+    const descendants = new Set<string>();
+    const queue = [deleteTarget.folderId];
+    while (queue.length > 0) {
+      const current = queue.shift() as string;
+      descendants.add(current);
+      folders.forEach((folder) => {
+        if (folder.parentId === current) queue.push(folder.id);
+      });
+    }
+    const noteCount = notes.reduce(
+      (count, note) => (note.folderId && descendants.has(note.folderId) ? count + 1 : count),
+      0
+    );
+    return {
+      folderCount: descendants.size - 1,
+      noteCount
+    };
+  }, [deleteTarget, folders, notes]);
 
   const dndSensors = useSensors(
     useSensor(PointerSensor, {
@@ -541,9 +683,10 @@ function Sidebar({
             type="button"
             aria-label="删除笔记"
             title="删除"
+            onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
-              onDeleteNote(note.id);
+              requestDeleteNote(note);
             }}
             className="rounded p-1 transition hover:bg-red-500/15 hover:text-red-300"
           >
@@ -690,10 +833,11 @@ function Sidebar({
               <button
                 type="button"
                 aria-label="删除文件夹"
-                title="删除（内部笔记会移到根目录）"
+                title="删除文件夹（将同时删除其中所有笔记）"
+                onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onDeleteFolder(node.folder.id);
+                  requestDeleteFolder(node.folder);
                 }}
                 className="rounded p-1 transition hover:bg-red-500/15 hover:text-red-300"
               >
@@ -1022,6 +1166,36 @@ function Sidebar({
           {renderPanelContent()}
         </div>
       </div>
+
+      <ConfirmModal
+        open={deleteTarget !== null}
+        title={deleteTarget?.kind === 'folder' ? '删除文件夹' : '删除笔记'}
+        description={
+          deleteTarget?.kind === 'folder' ? (
+            <>
+              <p>
+                确定要删除文件夹「<span className="text-slate-200">{deleteTarget.name}</span>」吗？
+              </p>
+              <p className="mt-2 text-red-300">
+                这将同时删除其中包含的所有笔记
+                {folderDeleteImpact && folderDeleteImpact.folderCount > 0
+                  ? `及 ${folderDeleteImpact.folderCount} 个子文件夹`
+                  : ''}
+                {folderDeleteImpact && folderDeleteImpact.noteCount > 0
+                  ? `（共 ${folderDeleteImpact.noteCount} 条笔记）`
+                  : ''}
+                ，此操作不可逆。
+              </p>
+            </>
+          ) : deleteTarget?.kind === 'note' ? (
+            <p>
+              确定要删除笔记「<span className="text-slate-200">{deleteTarget.title}</span>」吗？此操作不可逆。
+            </p>
+          ) : null
+        }
+        onConfirm={confirmDelete}
+        onCancel={closeDeleteConfirm}
+      />
     </div>
   );
 }

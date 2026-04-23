@@ -262,13 +262,13 @@ function App() {
     if (nextNotes.length === 0) {
       const fallback = createDefaultNote();
       setNotes([fallback]);
-      setActiveNoteId(fallback.id);
+      setActiveNoteId(null);
       return;
     }
 
     setNotes(nextNotes);
     if (noteId === activeNoteId) {
-      setActiveNoteId(nextNotes[0]?.id ?? null);
+      setActiveNoteId(null);
     }
   };
 
@@ -387,7 +387,7 @@ function App() {
   };
 
   const handleDeleteFolder = (folderId: string) => {
-    // 收集所有后代文件夹 id（含自身）。
+    // 收集所有后代文件夹 id（含自身），支持任意层级嵌套。
     const descendants = new Set<string>();
     const queue = [folderId];
     while (queue.length > 0) {
@@ -397,13 +397,24 @@ function App() {
         if (folder.parentId === current) queue.push(folder.id);
       });
     }
-    // 删除子孙文件夹；其中所有笔记回落到根目录，避免数据丢失。
+
+    // 一并收集会被级联删除的笔记 id，便于事后判定 activeNoteId 是否需要重置。
+    const deletedNoteIds = new Set<string>();
+    notes.forEach((note) => {
+      if (note.folderId && descendants.has(note.folderId)) {
+        deletedNoteIds.add(note.id);
+      }
+    });
+
     setFolders((prev) => prev.filter((folder) => !descendants.has(folder.id)));
-    setNotes((prev) =>
-      prev.map((note) =>
-        note.folderId && descendants.has(note.folderId) ? { ...note, folderId: null } : note
-      )
-    );
+    setNotes((prev) => {
+      const next = prev.filter((note) => !deletedNoteIds.has(note.id));
+      if (next.length === 0) {
+        // 维持「至少有一条笔记」的不变量，避免 useEffect 反复生成默认笔记。
+        return [createDefaultNote()];
+      }
+      return next;
+    });
     setExpandedFolders((prev) => {
       const next = { ...prev };
       descendants.forEach((id) => {
@@ -411,6 +422,11 @@ function App() {
       });
       return next;
     });
+
+    // 当前选中笔记如果在被级联删除范围内，回到 Dashboard。
+    if (activeNoteId && deletedNoteIds.has(activeNoteId)) {
+      setActiveNoteId(null);
+    }
   };
 
   const handleToggleFolder = (folderId: string) => {
