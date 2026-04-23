@@ -14,10 +14,12 @@
 | **样式** | Tailwind CSS 3.x + PostCSS + Autoprefixer | 响应式与暗色 UI |
 | **排版** | `@tailwindcss/typography` | Markdown 预览区 `prose` 类 |
 | **Markdown 解析** | `react-markdown` v9 + **`remark-gfm`** + **`remark-breaks`** + **`rehype-raw`** | GFM 表格等；换行宽容； fenced 外 HTML 片段解析（注意 XSS 面） |
+| **图表渲染** | **Mermaid**（动态加载） | 识别 ```` ```mermaid ```` 代码块并转 SVG；仅在命中 Mermaid 代码块时才 `import('mermaid')` |
 | **正文预处理** | `src/utils/formatMarkdownSource.ts` | 统一 CRLF/LF，并将连续空行压缩为双换行后送入解析器 |
 | **代码高亮** | **原生 Prism.js 1.29.0**（已移除 `react-syntax-highlighter`） | `Prism.highlight` + 按需 `import 'prismjs/components/...'`；预览与打印路径统一走同一套 Prism 实例 |
 | **编辑器源码高亮** | `react-simple-code-editor` + Prism | 编辑区对 Markdown 源码做语法着色 |
 | **图标** | `lucide-react` | 工具栏等 UI 图标 |
+| **拖拽交互** | `@dnd-kit/core` | 侧栏笔记拖拽归档（Note -> Folder），含 `PointerSensor`/`TouchSensor` 防误触 |
 | **本地文件** | `browser-fs-access` | 支持多文件与文件夹递归导入 `.md` / `.txt` |
 | **打印 / PDF** | `react-to-print` | 系统打印对话框，用户可「另存为 PDF」 |
 | **持久化** | `LocalStorage` + 自封装 Hook | 笔记、文件夹树、展开状态、当前选中笔记、搜索词等 |
@@ -37,9 +39,12 @@
 
 - **侧栏**：笔记列表、搜索、关于作者、公众号等（设置面板已移除）。
 - **笔记组织**：侧栏为 IDE 风格紧凑树形结构，支持文件夹嵌套、展开/收起、文件夹内空状态提示、笔记移动到目标文件夹。
+- **拖拽归档**：基于 `@dnd-kit/core`，支持「笔记 -> 文件夹」拖拽移动；拖拽中笔记半透明、目标文件夹高亮；移动端使用 `TouchSensor`（长按延迟+容差）避免滚动误触。
+- **删除保护**：笔记/文件夹删除均改为二次确认弹窗；文件夹删除为级联删除（包含所有子文件夹与其下笔记）；若当前选中笔记在删除范围内，自动回到 Dashboard。
 - **主工作区**（`LiveMarkdownWorkspace`）：
   - **编辑模式**：`react-simple-code-editor` + Prism Markdown 高亮。
-  - **阅读模式**：`react-markdown` + 原生 Prism 高亮代码块。
+  - **阅读模式**：`react-markdown` + 原生 Prism 高亮代码块 + Mermaid 图表渲染（`language-mermaid`）。
+  - **移动端适配**：保留编辑/阅读单视图切换；工具栏按钮与标题区紧凑化；阅读区 `prose` 在移动端使用 `px-4` 等内边距防贴边。
 - **标题**：由内容或文件名推导；支持 Zen 等与侧栏面板联动。
 
 ### 2. 本地文件导入
@@ -54,17 +59,20 @@
 ### 3. PDF 导出（浏览器打印）
 
 - 使用 **`react-to-print`**，打印目标为仅包含渲染后 Markdown 的区域（与 `@media print` 样式配合，隐藏工具栏、侧栏等）。
+- 当文档包含 Mermaid 图表时，导出前会等待异步渲染完成（通过渲染追踪器），避免打印结果出现空白图或 loading 占位。
 - 用户在系统打印对话框中选择 **「另存为 PDF」**（或 macOS 的「存储为 PDF」）即可导出。
 
 ### 4. 其他
 
 - **复制**：可将当前笔记 Markdown 复制到剪贴板。
 - **打印样式**：`src/index.css` 中 `@media print` 控制边距、分页、链接不追加 URL 等。
+- **Mermaid 体验**：图表容器使用 `overflow-x-auto` 兼容超宽链路图；渲染期间提供轻量 loading，占位失败时回退错误提示与源码。
 
 ### 5. 首页 Dashboard 与版式
 
 - **首页优先**：应用挂载时会强制清空当前选中笔记，默认展示 `WorkspaceDashboard`（即使本地有历史笔记）。
 - **无当前笔记时**：`App.tsx` 中 **`WorkspaceDashboard`** 展示首页。
+- **移动端侧栏**：`md` 以下改为 fixed 抽屉 + 遮罩；新增汉堡按钮控制显隐；选中笔记后自动收起抽屉，提升小屏编辑可用面积。
 - **特性轮播**：`src/components/FeatureCarousel.tsx`，暗色卡片 + 透视/旋转切换、自动轮播、`lucide-react` 箭头与圆点指示；与标题区、底部三列卡片之间通过 **`z-index` + 限高 + `overflow-hidden`** 控制层级与留白，避免遮挡文案或挤压卡片。
 - **阅读模式排版**：`LiveMarkdownWorkspace` / `Preview` 中 `prose` 区域 **限宽居中**、响应式水平内边距；`tailwind.config.ts` 与 `index.css` 中增强 **`prose-invert`** 下行距、段落节奏与代码块对比度（主题 **`prism-okaidia`**）。
 
@@ -84,13 +92,15 @@
 | `src/prism-loader.ts` | Prism 核心 + 语言包顺序加载 + 主题 + `window.Prism` |
 | `src/utils/resolvePrismLanguage.ts` | 围栏语言别名、`coercePrismLanguage` 兜底 |
 | `src/utils/formatMarkdownSource.ts` | 送入 `react-markdown` 前的轻量换行清洗 |
+| `src/utils/mermaidLoader.ts` | Mermaid 动态加载、主题初始化与渲染追踪（供打印前等待） |
 | `src/config/author.ts` | 作者品牌静态配置（作者、公众号、GitHub、二维码） |
 | `src/vite-env.d.ts` | `vite/client` 类型（如 `import.meta.env`） |
-| `src/App.tsx` | 路由级布局、笔记状态、Dashboard、首页轮播挂载点 |
+| `src/App.tsx` | 路由级布局、笔记状态、Dashboard、移动端侧栏抽屉显隐与级联删除逻辑 |
 | `src/components/FeatureCarousel.tsx` | 首页特性轮播（无第三方轮播库） |
-| `src/components/LiveMarkdownWorkspace.tsx` | 编辑/阅读切换、批量导入（文件/文件夹）、导出 PDF、Markdown 插件与 Prism 代码块 |
-| `src/components/Sidebar.tsx` | 侧栏导航、紧凑树形文件夹/笔记结构与作者/公众号面板 |
-| `src/components/Preview.tsx` | 独立预览中的 Markdown + Prism |
+| `src/components/LiveMarkdownWorkspace.tsx` | 编辑/阅读切换、批量导入（文件/文件夹）、Mermaid + Prism 渲染、导出 PDF（含 Mermaid 渲染完成等待） |
+| `src/components/MermaidBlock.tsx` | Mermaid 代码块异步渲染组件（loading/error/SVG 容器） |
+| `src/components/Sidebar.tsx` | 侧栏导航、紧凑树形文件夹/笔记结构、拖拽归档（`@dnd-kit`）、删除确认弹窗与移动端抽屉 |
+| `src/components/Preview.tsx` | 独立预览中的 Markdown + Prism + Mermaid |
 | `src/hooks/useLocalStorage.ts` | 本地存储封装 |
 | `src/types/note.ts` | 笔记与文件夹数据模型（`Note` / `Folder` / `ImportedNoteDraft`） |
 | `vite.config.ts` | Vite 与依赖预构建（如 `optimizeDeps` 含 `prismjs`） |

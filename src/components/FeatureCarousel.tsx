@@ -25,13 +25,13 @@ function FakeChromeBar() {
 
 function SlideMarkdownMock() {
   return (
-    <div className="flex min-h-[96px] font-mono text-[10px] leading-relaxed md:min-h-[108px] md:text-[11px]">
-      <div className="select-none border-r border-slate-700/60 bg-black/30 px-2 py-3 text-right text-slate-600">
+    <div className="flex h-full min-h-[96px] font-mono text-[10px] leading-relaxed md:min-h-[108px] md:text-[11px] lg:min-h-[200px] lg:text-[13px]">
+      <div className="select-none border-r border-slate-700/60 bg-black/30 px-2 py-3 text-right text-slate-600 lg:px-3 lg:py-4">
         {['1', '2', '3', '4', '5', '6'].map((n) => (
           <div key={n}>{n}</div>
         ))}
       </div>
-      <div className="flex-1 space-y-1 p-3 text-slate-300">
+      <div className="flex-1 space-y-1 p-3 text-slate-300 lg:space-y-1.5 lg:p-4">
         <p>
           <span className="text-cyan-400/90">#</span> Stream 模块总结
         </p>
@@ -58,7 +58,7 @@ function SlideMarkdownMock() {
 
 function SlideTableMock() {
   return (
-    <div className="min-h-[96px] p-2.5 font-mono text-[10px] md:min-h-[108px] md:text-[11px]">
+    <div className="h-full min-h-[96px] p-2.5 font-mono text-[10px] md:min-h-[108px] md:text-[11px] lg:min-h-[200px] lg:p-5 lg:text-[13px]">
       <p className="mb-2 text-slate-400">| 能力 | 说明 |</p>
       <p className="text-cyan-400/70">| --- | --- |</p>
       <p className="text-slate-300">| 流式 | 降低首字节延迟 |</p>
@@ -69,16 +69,16 @@ function SlideTableMock() {
 
 function SlideArchitectureMock() {
   return (
-    <div className="flex min-h-[96px] items-center justify-center gap-2 p-2.5 md:min-h-[108px] md:gap-2.5">
-      <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 px-2 py-3 text-center text-[10px] text-cyan-100/90 md:px-3 md:text-xs">
+    <div className="flex h-full min-h-[96px] items-center justify-center gap-2 p-2.5 md:min-h-[108px] md:gap-2.5 lg:min-h-[200px] lg:gap-4 lg:p-5">
+      <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 px-2 py-3 text-center text-[10px] text-cyan-100/90 md:px-3 md:text-xs lg:px-5 lg:py-4 lg:text-sm">
         Sidebar
       </div>
-      <span className="text-cyan-500/50">→</span>
-      <div className="rounded-lg border border-sky-500/35 bg-sky-500/5 px-2 py-3 text-center text-[10px] text-sky-100/90 md:px-3 md:text-xs">
+      <span className="text-cyan-500/50 lg:text-lg">→</span>
+      <div className="rounded-lg border border-sky-500/35 bg-sky-500/5 px-2 py-3 text-center text-[10px] text-sky-100/90 md:px-3 md:text-xs lg:px-5 lg:py-4 lg:text-sm">
         Editor
       </div>
-      <span className="text-cyan-500/50">→</span>
-      <div className="rounded-lg border border-violet-500/35 bg-violet-500/5 px-2 py-3 text-center text-[10px] text-violet-100/90 md:px-3 md:text-xs">
+      <span className="text-cyan-500/50 lg:text-lg">→</span>
+      <div className="rounded-lg border border-violet-500/35 bg-violet-500/5 px-2 py-3 text-center text-[10px] text-violet-100/90 md:px-3 md:text-xs lg:px-5 lg:py-4 lg:text-sm">
         Preview
       </div>
     </div>
@@ -87,7 +87,7 @@ function SlideArchitectureMock() {
 
 function SlidePdfMock() {
   return (
-    <div className="min-h-[96px] space-y-1.5 p-2.5 font-mono text-[10px] text-slate-400 md:min-h-[108px] md:text-[11px]">
+    <div className="h-full min-h-[96px] space-y-1.5 p-2.5 font-mono text-[10px] text-slate-400 md:min-h-[108px] md:text-[11px] lg:min-h-[200px] lg:space-y-3 lg:p-5 lg:text-[13px]">
       <p>
         <span className="text-cyan-400/80">[print]</span> react-to-print
       </p>
@@ -137,9 +137,26 @@ export default function FeatureCarousel({ slides = DEFAULT_SLIDES }: { slides?: 
   const len = slides.length;
   const [active, setActive] = useState(0);
   const [stageFocused, setStageFocused] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const intervalRef = useRef<number | null>(null);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+
   const activeScale = stageFocused ? 1 : 0.9;
+  // 移动端收敛 3D 透视：减小水平偏移与旋转角度，避免侧卡片投影遮挡下方按钮。
+  const peekX = isMobile ? 24 : 34;
+  const peekRot = isMobile ? 12 : 22;
+  const peekZ = isMobile ? -80 : -120;
+  const peekScale = isMobile ? 0.82 : 0.78;
+  const farZ = isMobile ? -160 : -220;
+  const farScale = isMobile ? 0.7 : 0.66;
 
   const scheduleAutoplay = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -185,7 +202,7 @@ export default function FeatureCarousel({ slides = DEFAULT_SLIDES }: { slides?: 
       }
       if (d === 1 || d === -(len - 1)) {
         return {
-          transform: 'translateX(34%) translateZ(-120px) rotateY(-22deg) scale(0.78)',
+          transform: `translateX(${peekX}%) translateZ(${peekZ}px) rotateY(-${peekRot}deg) scale(${peekScale})`,
           opacity: 0.4,
           zIndex: 10,
           pointerEvents: 'none' as const
@@ -193,25 +210,25 @@ export default function FeatureCarousel({ slides = DEFAULT_SLIDES }: { slides?: 
       }
       if (d === -1 || d === len - 1) {
         return {
-          transform: 'translateX(-34%) translateZ(-120px) rotateY(22deg) scale(0.78)',
+          transform: `translateX(-${peekX}%) translateZ(${peekZ}px) rotateY(${peekRot}deg) scale(${peekScale})`,
           opacity: 0.4,
           zIndex: 10,
           pointerEvents: 'none' as const
         };
       }
       return {
-        transform: 'translateX(0) translateZ(-220px) rotateY(0deg) scale(0.66)',
+        transform: `translateX(0) translateZ(${farZ}px) rotateY(0deg) scale(${farScale})`,
         opacity: 0,
         zIndex: 0,
         pointerEvents: 'none' as const
       };
     });
-  }, [active, activeScale, len, slides]);
+  }, [active, activeScale, farScale, farZ, len, peekRot, peekScale, peekX, peekZ, slides]);
 
   return (
-    <div className="my-4 flex w-full max-w-xl shrink-0 flex-col items-center justify-center md:my-6">
+    <div className="isolate my-2 flex w-full max-w-xl shrink-0 flex-col items-center justify-center overflow-x-clip md:my-6 md:max-w-2xl lg:max-w-4xl xl:max-w-5xl 2xl:max-w-6xl">
       <div
-        className="relative z-10 mx-auto w-full max-w-xl [perspective:1200px]"
+        className="relative z-0 mx-auto w-full max-w-xl overflow-x-clip [perspective:1400px] md:max-w-2xl lg:max-w-4xl lg:[perspective:1800px] xl:max-w-5xl 2xl:max-w-6xl"
         aria-roledescription="carousel"
         aria-label="产品特性轮播"
         onMouseEnter={() => setStageFocused(true)}
@@ -223,7 +240,7 @@ export default function FeatureCarousel({ slides = DEFAULT_SLIDES }: { slides?: 
           }
         }}
       >
-        <div className="relative isolate mx-auto h-[min(26vh,240px)] w-full max-h-[280px] max-w-xl overflow-hidden rounded-xl px-1 pb-2 pt-1 sm:h-[min(28vh,260px)] md:max-h-[300px]">
+        <div className="relative isolate mx-auto h-[min(28vh,220px)] w-full max-h-[250px] max-w-xl overflow-hidden rounded-xl px-1 pb-2 pt-1 sm:h-[min(28vh,240px)] sm:max-h-[260px] md:h-[min(30vh,280px)] md:max-h-[320px] md:max-w-2xl lg:h-[min(40vh,420px)] lg:max-h-[440px] lg:max-w-4xl xl:max-h-[470px] xl:max-w-5xl 2xl:max-h-[520px] 2xl:max-w-6xl">
           {slides.map((slide, i) => {
             const t = transforms[i];
             return (
@@ -240,9 +257,11 @@ export default function FeatureCarousel({ slides = DEFAULT_SLIDES }: { slides?: 
               >
                 <div className="flex h-full flex-col overflow-hidden rounded-[0.65rem] border border-slate-800/80 bg-[#070b12]/90">
                   <FakeChromeBar />
-                  <div className="border-b border-cyan-500/10 px-3 py-2 md:px-3.5 md:py-2.5">
-                    <h3 className="text-xs font-semibold tracking-tight text-slate-100 md:text-sm">{slide.title}</h3>
-                    <p className="mt-0.5 text-[11px] text-slate-500 md:text-xs">{slide.subtitle}</p>
+                  <div className="border-b border-cyan-500/10 px-3 py-2 md:px-3.5 md:py-2.5 lg:px-5 lg:py-3.5">
+                    <h3 className="text-xs font-semibold tracking-tight text-slate-100 md:text-sm lg:text-base">
+                      {slide.title}
+                    </h3>
+                    <p className="mt-0.5 text-[11px] text-slate-500 md:text-xs lg:mt-1 lg:text-sm">{slide.subtitle}</p>
                   </div>
                   <div className="min-h-0 flex-1 overflow-hidden">{slide.preview}</div>
                 </div>

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import {
   DndContext,
   PointerSensor,
+  TouchSensor,
   useDraggable,
   useDroppable,
   useSensor,
@@ -20,7 +21,8 @@ import {
   FolderOpen,
   FolderPlus,
   FolderInput,
-  Trash2
+  Trash2,
+  X
 } from 'lucide-react';
 import type { AuthorProfile } from '../types/authorProfile';
 import type { Folder, Note } from '../types/note';
@@ -184,6 +186,8 @@ interface SidebarProps {
   onToggleFolder: (folderId: string) => void;
   onMoveNoteToFolder: (noteId: string, folderId: string | null) => void;
   onNavigateHome?: () => void;
+  isMobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 type FolderEditingDraft =
@@ -387,7 +391,9 @@ function Sidebar({
   onDeleteFolder,
   onToggleFolder,
   onMoveNoteToFolder,
-  onNavigateHome
+  onNavigateHome,
+  isMobileOpen = false,
+  onMobileClose
 }: SidebarProps) {
   const [folderDraft, setFolderDraft] = useState<FolderEditingDraft | null>(null);
   const [folderDraftName, setFolderDraftName] = useState('');
@@ -445,6 +451,10 @@ function Sidebar({
   const dndSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 }
+    }),
+    // 移动端：长按 250ms 才进入拖拽，容忍 8px 抖动，避免页面滚动被误识别为拖拽。
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 8 }
     })
   );
 
@@ -491,6 +501,21 @@ function Sidebar({
     window.addEventListener('mousedown', handleClickAway);
     return () => window.removeEventListener('mousedown', handleClickAway);
   }, [moveMenuNoteId]);
+
+  // 抽屉打开时锁定 body 滚动 + 监听 ESC 关闭，避免移动端下层页面跟随手势滚动。
+  useEffect(() => {
+    if (!isMobileOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') onMobileClose?.();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMobileOpen, onMobileClose]);
 
   const noteMetrics = useMemo(
     () => ({
@@ -590,6 +615,7 @@ function Sidebar({
   const handleLogoClick = () => {
     onSelectNote(null);
     onNavigateHome?.();
+    onMobileClose?.();
   };
 
   const renderQrCard = () => {
@@ -651,7 +677,7 @@ function Sidebar({
       <DraggableNoteRow key={note.id} noteId={note.id}>
         {({ dragHandleProps }) => (
       <div
-        className={`group relative flex items-center gap-1.5 rounded-md py-1 pr-2 text-sm transition ${
+        className={`group relative flex items-center gap-1.5 rounded-md py-2 pr-2 text-sm transition md:py-1 ${
           isActive ? 'bg-white/10 text-slate-50' : 'text-slate-300 hover:bg-white/5'
         }`}
         style={{ paddingLeft }}
@@ -666,7 +692,7 @@ function Sidebar({
         >
           {note.title}
         </button>
-        <div className="ml-1 hidden items-center gap-1 text-slate-500 group-hover:flex">
+        <div className="ml-1 flex items-center gap-1 text-slate-500 md:hidden md:group-hover:flex">
           <button
             type="button"
             aria-label="移动到文件夹"
@@ -759,7 +785,7 @@ function Sidebar({
         <DroppableFolderShell folderId={node.folder.id} disabled={dropDisabled}>
           {({ isOver }) => (
         <div
-          className={`group flex items-center gap-1 rounded-md py-1 pr-2 text-sm text-slate-200 transition ${
+          className={`group flex items-center gap-1 rounded-md py-2 pr-2 text-sm text-slate-200 transition md:py-1 ${
             isOver
               ? 'border border-[#3b82f6] bg-[#132238]/80 text-slate-50 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
               : 'border border-transparent hover:bg-white/5'
@@ -770,7 +796,7 @@ function Sidebar({
             type="button"
             onClick={() => onToggleFolder(node.folder.id)}
             aria-label={isExpanded ? '收起文件夹' : '展开文件夹'}
-            className="rounded p-0.5 text-slate-500 transition hover:text-slate-100"
+            className="rounded p-1 text-slate-500 transition hover:text-slate-100 md:p-0.5"
           >
             {isExpanded ? (
               <ChevronDown className="h-3.5 w-3.5" />
@@ -805,7 +831,7 @@ function Sidebar({
             </button>
           )}
           {!isRenaming ? (
-            <div className="ml-1 hidden items-center gap-1 text-slate-500 group-hover:flex">
+            <div className="ml-1 flex items-center gap-1 text-slate-500 md:hidden md:group-hover:flex">
               <button
                 type="button"
                 aria-label="在此新建子文件夹"
@@ -1116,8 +1142,23 @@ function Sidebar({
   };
 
   return (
-    <div className="print-hide flex h-full">
-      <aside className="flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-[#161b22] bg-[#04070b] py-4">
+    <>
+      {/* 移动端抽屉遮罩：点击关闭，仅在 md 以下且抽屉打开时显示。 */}
+      {isMobileOpen ? (
+        <div
+          aria-hidden="true"
+          onClick={onMobileClose}
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+        />
+      ) : null}
+      <div
+        className={`print-hide h-full md:static md:z-auto md:flex ${
+          isMobileOpen
+            ? 'fixed inset-y-0 left-0 z-50 flex shadow-2xl shadow-black/50'
+            : 'hidden'
+        }`}
+      >
+        <aside className="flex h-full w-16 shrink-0 flex-col items-center justify-between border-r border-[#161b22] bg-[#04070b] py-4">
         <div className="flex flex-col items-center gap-3">
           <button
             type="button"
@@ -1154,17 +1195,29 @@ function Sidebar({
           />
         </div>
 
-        <div className="h-11 w-11" aria-hidden="true" />
+        {/* 移动端抽屉关闭按钮，仅在抽屉态可见。 */}
+        <button
+          type="button"
+          aria-label="关闭侧栏"
+          onClick={onMobileClose}
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#1e2632] bg-[#09111b] text-slate-400 transition hover:text-slate-100 md:hidden"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </aside>
 
       <div
         className={`overflow-hidden border-r border-[#161b22] transition-[width,opacity,transform] duration-300 ease-out ${
-          activePanel ? 'w-[340px] opacity-100 translate-x-0' : 'w-0 -translate-x-4 opacity-0'
+          activePanel
+            ? 'w-[min(86vw,340px)] opacity-100 translate-x-0 md:w-[340px]'
+            : 'w-0 -translate-x-4 opacity-0'
         }`}
       >
-        <div className="flex h-full w-[340px] flex-col bg-[#0b1017]">
+        <div className="flex h-full w-[min(86vw,340px)] flex-col bg-[#0b1017] md:w-[340px]">
           {renderPanelContent()}
         </div>
+      </div>
+
       </div>
 
       <ConfirmModal
@@ -1196,7 +1249,7 @@ function Sidebar({
         onConfirm={confirmDelete}
         onCancel={closeDeleteConfirm}
       />
-    </div>
+    </>
   );
 }
 

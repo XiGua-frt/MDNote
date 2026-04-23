@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Menu } from 'lucide-react';
 import { AUTHOR_PROFILE } from './config/author';
 import FeatureCarousel from './components/FeatureCarousel';
 import LiveMarkdownWorkspace from './components/LiveMarkdownWorkspace';
@@ -90,61 +91,72 @@ interface DashboardProps {
 function WorkspaceDashboard({ notes, zenMode, onCreateNote, onSelectNote }: DashboardProps) {
   const recentNotes = notes.slice(0, 3);
 
+  const latestNote = recentNotes[0];
+
+  // 全局共享的水平容器：在 PC 端把 Hero / 轮播 / 卡片对齐到同一条 7xl 主轴。
+  const sectionContainer = 'mx-auto w-full max-w-7xl';
+
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-l border-[#161b22] bg-[radial-gradient(circle_at_top,#132034_0%,#0d1117_42%,#090c10_100%)]">
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-8 md:px-10">
-        <div className="relative z-30 shrink-0 space-y-6">
-          <div className="flex flex-wrap items-center gap-3">
+    <section className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border-l border-[#161b22] bg-[radial-gradient(circle_at_top,#132034_0%,#0d1117_42%,#090c10_100%)]">
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-x-hidden overflow-y-auto px-4 pt-6 pb-20 md:px-10 md:py-8 lg:px-12 xl:px-16">
+        <div className={`relative z-10 shrink-0 space-y-5 md:space-y-6 ${sectionContainer}`}>
+          {/* 移动端为左上角 fixed 汉堡按钮预留 hit zone：徽章行整体右移，避免与 z-60 按钮重叠 */}
+          <div className="flex flex-wrap items-center gap-3 pl-12 md:pl-0">
             <span className="rounded-full border border-[#30363d] bg-slate-950/70 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-slate-400">
               {zenMode ? 'Zen Mode' : 'Dashboard'}
             </span>
             <span className="text-sm text-slate-500">持久存储全屏创作</span>
           </div>
           <div className="max-w-3xl">
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-100 md:text-5xl">
-            执笔入定，让思绪结构化。
+            <h1 className="whitespace-nowrap text-2xl font-semibold tracking-tight text-slate-100 sm:text-3xl md:whitespace-normal md:text-5xl">
+              执笔入定，让思绪结构化。
             </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-400 md:text-base">
-            这里是你的灵感庇护所，实时预览让内容即刻成型，语法高亮让逻辑清晰可见。在这里，每一行文字都拥有它应有的规范美感。
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-400 md:mt-4 md:text-base">
+              这里是你的灵感庇护所，实时预览让内容即刻成型，语法高亮让逻辑清晰可见。在这里，每一行文字都拥有它应有的规范美感。
             </p>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <button
               type="button"
               onClick={onCreateNote}
-              className="rounded-full bg-[linear-gradient(135deg,#60a5fa_0%,#2563eb_100%)] px-5 py-2.5 text-sm font-medium text-white transition hover:brightness-110"
+              className="inline-flex items-center justify-center rounded-full bg-[linear-gradient(135deg,#60a5fa_0%,#2563eb_100%)] px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-110 sm:px-5"
             >
               新建一条笔记
             </button>
-            {recentNotes[0] ? (
+            {latestNote ? (
               <button
                 type="button"
-                onClick={() => onSelectNote(recentNotes[0].id)}
-                className="rounded-full border border-[#30363d] bg-slate-950/70 px-5 py-2.5 text-sm text-slate-200 transition hover:border-slate-500 hover:text-white"
+                onClick={() => onSelectNote(latestNote.id)}
+                className="inline-flex items-center justify-center rounded-full border border-[#30363d] bg-slate-950/70 px-4 py-2.5 text-sm text-slate-200 transition hover:border-slate-500 hover:text-white sm:px-5"
               >
-                打开最近一条
+                <span className="sm:hidden">继续编辑</span>
+                <span className="hidden sm:inline">打开最近一条</span>
               </button>
             ) : null}
           </div>
         </div>
 
-        <div className="relative z-0 mt-10 flex min-h-0 flex-1 flex-col items-center justify-center py-6 md:mt-12 md:py-8">
+        <div
+          className={`relative isolate z-0 mt-4 flex shrink-0 flex-col items-center justify-center py-2 md:mt-10 md:py-6 lg:mt-12 lg:py-8 ${sectionContainer}`}
+        >
           <FeatureCarousel />
         </div>
 
-        <div className="relative z-20 shrink-0 grid gap-4 xl:grid-cols-[1.15fr_0.85fr_1fr]">
-          <section className="rounded-3xl border border-[#30363d] bg-slate-950/55 p-5">
-            <div className="mb-4 flex items-center justify-between">
+        <div
+          className={`relative z-10 mt-2 grid shrink-0 grid-cols-1 gap-4 md:mt-0 lg:grid-cols-[1.15fr_0.85fr_1fr] ${sectionContainer}`}
+        >
+          <section className="rounded-3xl border border-[#30363d] bg-slate-950/55 p-4 md:p-5">
+            <div className="mb-3 flex items-center justify-between md:mb-4">
               <h2 className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-300">最近编辑</h2>
               <span className="text-xs text-slate-500">{recentNotes.length} 条</span>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2 md:space-y-3">
               {recentNotes.map((note) => (
                 <button
                   key={note.id}
                   type="button"
                   onClick={() => onSelectNote(note.id)}
-                  className="block w-full rounded-2xl border border-[#202833] bg-[#0e1620] px-4 py-3 text-left transition hover:border-[#3a4a60] hover:bg-[#101b27]"
+                  className="block w-full rounded-2xl border border-[#202833] bg-[#0e1620] px-3 py-2 text-left transition hover:border-[#3a4a60] hover:bg-[#101b27] md:px-4 md:py-3"
                 >
                   <p className="truncate text-sm font-medium text-slate-100">{note.title}</p>
                   <p className="mt-1 text-xs text-slate-500">
@@ -160,7 +172,7 @@ function WorkspaceDashboard({ notes, zenMode, onCreateNote, onSelectNote }: Dash
             </div>
           </section>
 
-          <section className="rounded-3xl border border-[#30363d] bg-slate-950/55 p-5">
+          <section className="hidden rounded-3xl border border-[#30363d] bg-slate-950/55 p-5 md:block">
             <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.24em] text-slate-300">快捷键提示</h2>
             <div className="space-y-3">
               {DASHBOARD_SHORTCUTS.map((shortcut) => (
@@ -175,18 +187,18 @@ function WorkspaceDashboard({ notes, zenMode, onCreateNote, onSelectNote }: Dash
             </div>
           </section>
 
-          <section className="rounded-3xl border border-[#30363d] bg-slate-950/55 p-5">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.24em] text-slate-300">
+          <section className="rounded-3xl border border-[#30363d] bg-slate-950/55 p-4 md:p-5">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.24em] text-slate-300 md:mb-4">
               Agent 项目推荐
             </h2>
-            <div className="space-y-3">
+            <div className="space-y-2 md:space-y-3">
               {AGENT_PROJECTS.map((project) => (
                 <article
                   key={project.name}
-                  className="rounded-2xl border border-[#202833] bg-[#0e1620] px-4 py-3"
+                  className="rounded-2xl border border-[#202833] bg-[#0e1620] px-3 py-2 md:px-4 md:py-3"
                 >
                   <h3 className="text-sm font-medium text-slate-100">{project.name}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">{project.description}</p>
+                  <p className="mt-2 hidden text-sm leading-6 text-slate-400 md:block">{project.description}</p>
                 </article>
               ))}
             </div>
@@ -208,6 +220,7 @@ function App() {
   const [searchKeyword, setSearchKeyword] = useLocalStorage<string>('mdnote-search', '');
   const [activePanel, setActivePanel] = useState<SidebarPanel>('notes');
   const [hasMounted, setHasMounted] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const orderedNotes = useMemo(
     () => [...notes].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -255,6 +268,7 @@ function App() {
     const newNote = createDefaultNote();
     setNotes((prevNotes) => [newNote, ...prevNotes]);
     setActiveNoteId(newNote.id);
+    setIsMobileSidebarOpen(false);
   };
 
   const handleDeleteNote = (noteId: string) => {
@@ -443,11 +457,35 @@ function App() {
   };
 
   const handlePanelChange = (panel: SidebarPanel) => {
-    setActivePanel((prevPanel) => (prevPanel === panel ? null : panel));
+    setActivePanel((prevPanel) => {
+      const next = prevPanel === panel ? null : panel;
+      // 移动端：点掉当前面板（变为 null）时同步收起抽屉，避免只剩一条 64px 的空壳。
+      if (next === null) setIsMobileSidebarOpen(false);
+      return next;
+    });
   };
+
+  const handleSelectNote = (noteId: string | null) => {
+    setActiveNoteId(noteId);
+    // 移动端：选中笔记后自动收起抽屉，让出工作区。
+    if (noteId) setIsMobileSidebarOpen(false);
+  };
+
+  const closeMobileSidebar = () => setIsMobileSidebarOpen(false);
+  const openMobileSidebar = () => setIsMobileSidebarOpen(true);
 
   return (
     <main className="app-shell h-screen overflow-hidden bg-[#05080d] text-slate-100">
+      {!isMobileSidebarOpen ? (
+        <button
+          type="button"
+          aria-label="打开侧栏"
+          onClick={openMobileSidebar}
+          className="print-hide pointer-events-auto fixed left-2 top-2 z-[60] inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[#202833] bg-[#0b1017]/90 p-2 text-slate-300 shadow-lg shadow-black/30 backdrop-blur transition hover:border-slate-500 hover:text-white md:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      ) : null}
       <div className="flex h-full min-h-0">
         <Sidebar
           notes={orderedNotes}
@@ -461,13 +499,15 @@ function App() {
           onPanelChange={handlePanelChange}
           onSearchChange={setSearchKeyword}
           onCreateNote={handleCreateNote}
-          onSelectNote={setActiveNoteId}
+          onSelectNote={handleSelectNote}
           onDeleteNote={handleDeleteNote}
           onCreateFolder={handleCreateFolder}
           onRenameFolder={handleRenameFolder}
           onDeleteFolder={handleDeleteFolder}
           onToggleFolder={handleToggleFolder}
           onMoveNoteToFolder={handleMoveNoteToFolder}
+          isMobileOpen={isMobileSidebarOpen}
+          onMobileClose={closeMobileSidebar}
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -486,7 +526,7 @@ function App() {
               notes={orderedNotes}
               zenMode={zenMode}
               onCreateNote={handleCreateNote}
-              onSelectNote={(noteId) => setActiveNoteId(noteId)}
+              onSelectNote={(noteId) => handleSelectNote(noteId)}
             />
           )}
         </div>

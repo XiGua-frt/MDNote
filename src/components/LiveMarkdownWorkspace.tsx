@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { directoryOpen, fileOpen } from 'browser-fs-access';
 import { ChevronDown, Download, FileUp, FolderUp, Loader2 } from 'lucide-react';
 import type { ImportedNoteDraft } from '../types/note';
@@ -12,6 +13,8 @@ import rehypeRaw from 'rehype-raw';
 import { useReactToPrint } from 'react-to-print';
 import { formatMarkdownSource } from '../utils/formatMarkdownSource';
 import { coercePrismLanguage, resolvePrismLanguage } from '../utils/resolvePrismLanguage';
+import { mermaidTracker } from '../utils/mermaidLoader';
+import MermaidBlock from './MermaidBlock';
 
 function renderHighlightedCodeBlock(text: string, canonicalLanguage: string, className?: string) {
   try {
@@ -41,6 +44,60 @@ function renderHighlightedCodeBlock(text: string, canonicalLanguage: string, cla
 const markdownPlugins = [remarkGfm, remarkBreaks] as const;
 const rehypePlugins = [rehypeRaw] as const;
 
+function normalizeMermaidLabelText(source: string): string {
+  // Mermaid 标签容错：
+  // 1) 清洗：内部双引号统一替换为单引号；
+  // 2) 判断：是否已被最外层双引号包裹；
+  // 3) 包裹：未包裹且含特殊字符 ( ) . , = 时，补最外层双引号。
+  const normalizeLabel = (rawContent: string): string => {
+    const trimmed = rawContent.trim();
+    if (!trimmed) return trimmed;
+
+    const alreadyWrapped = /^".*"$/.test(trimmed);
+    if (alreadyWrapped) {
+      const inner = trimmed.slice(1, -1).replace(/"/g, "'");
+      return `"${inner}"`;
+    }
+
+    const cleaned = trimmed.replace(/"/g, "'");
+    const hasSpecialChars = /[().,=]/.test(cleaned);
+    return hasSpecialChars ? `"${cleaned}"` : cleaned;
+  };
+
+  const rewriteLine = (line: string): string => {
+    if (!line.trim() || line.trimStart().startsWith('%%')) return line;
+    let out = line;
+    out = out.replace(
+      /\b([A-Za-z_][\w-]*)\[([^\]\n]*)\]/g,
+      (_, id: string, label: string) => `${id}[${normalizeLabel(label)}]`
+    );
+    out = out.replace(
+      /\b([A-Za-z_][\w-]*)\(([^)\n]*)\)/g,
+      (_, id: string, label: string) => `${id}(${normalizeLabel(label)})`
+    );
+    out = out.replace(
+      /\b([A-Za-z_][\w-]*)\{([^}\n]*)\}/g,
+      (_, id: string, label: string) => `${id}{${normalizeLabel(label)}}`
+    );
+    return out;
+  };
+  return source
+    .split('\n')
+    .map(rewriteLine)
+    .join('\n');
+}
+
+function isMermaidElement(node: ReactNode): boolean {
+  if (!isValidElement(node)) return false;
+  const className = (node as ReactElement<{ className?: string }>).props?.className;
+  return typeof className === 'string' && /\blanguage-mermaid\b/.test(className);
+}
+
+function hasMermaidChild(children: ReactNode): boolean {
+  const arr = Array.isArray(children) ? children : [children];
+  return arr.some(isMermaidElement);
+}
+
 const markdownComponents: Components = {
   table({ children, ...props }) {
     return (
@@ -49,11 +106,24 @@ const markdownComponents: Components = {
       </div>
     );
   },
+  pre({ children, ...props }) {
+    // Mermaid 块走自定义 <div>+SVG，跳过 <pre> 包装避免 monospace 容器影响 SVG 排版。
+    if (hasMermaidChild(children)) {
+      return <>{children}</>;
+    }
+    return <pre {...props}>{children}</pre>;
+  },
   code({ className, children, ...props }) {
     const match = /language-([a-zA-Z0-9_-]+)/.exec(className || '');
+    const lang = match?.[1];
     const text = String(children).replace(/\n$/, '');
 
-    if (!text.trim() || !match?.[1]) {
+    // 优先识别 ```mermaid，使用异步渲染器，绕过 Prism。
+    if (lang === 'mermaid' && text.trim()) {
+      return <MermaidBlock code={normalizeMermaidLabelText(text)} />;
+    }
+
+    if (!text.trim() || !lang) {
       return (
         <code className={className} {...props}>
           {children}
@@ -61,7 +131,7 @@ const markdownComponents: Components = {
       );
     }
 
-    return renderHighlightedCodeBlock(text, resolvePrismLanguage(match[1]), className);
+    return renderHighlightedCodeBlock(text, resolvePrismLanguage(lang), className);
   }
 };
 
@@ -305,20 +375,26 @@ function LiveMarkdownWorkspace({
         requestAnimationFrame(() => resolve());
       });
     });
+    // 等待所有 Mermaid 异步渲染（屏幕态 + 打印态）完成，避免打印捕获到加载占位符。
+    await mermaidTracker.wait();
+    // 再让浏览器至少绘制一帧，确保 SVG 已落地 layout。
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
     handlePrint();
   };
 
   return (
     <section className="workspace-root flex h-full min-h-0 flex-col border-l border-[#161b22] bg-[#0b1017]">
-      <div className="print-hide border-b border-[#202833] px-5 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
+      <div className="print-hide border-b border-[#202833] px-3 py-3 md:px-5 md:py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 md:flex-nowrap md:gap-3">
+          <div className="min-w-0 pl-12 md:pl-0">
+            <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500 md:text-xs">
               {zenMode ? 'Zen Writing' : 'Live Preview Workspace'}
             </p>
-            <h2 className="mt-1 truncate text-base font-semibold text-slate-100">{noteTitle}</h2>
+            <h2 className="mt-1 truncate text-sm font-semibold text-slate-100 md:text-base">{noteTitle}</h2>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center justify-end gap-1.5 md:w-auto md:gap-2">
             <div ref={importMenuRef} className="relative">
               <button
                 type="button"
@@ -326,15 +402,16 @@ function LiveMarkdownWorkspace({
                 disabled={isImporting}
                 aria-haspopup="menu"
                 aria-expanded={isImportMenuOpen}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#30363d] bg-[#0a1017] px-3 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="导入笔记"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#30363d] bg-[#0a1017] px-2.5 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60 md:px-3"
               >
                 {isImporting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <FileUp className="h-4 w-4" />
                 )}
-                {isImporting ? '导入中…' : '导入'}
-                {!isImporting ? <ChevronDown className="h-3.5 w-3.5 opacity-70" /> : null}
+                <span className="hidden md:inline">{isImporting ? '导入中…' : '导入'}</span>
+                {!isImporting ? <ChevronDown className="hidden h-3.5 w-3.5 opacity-70 md:inline" /> : null}
               </button>
               {isImportMenuOpen && !isImporting ? (
                 <div
@@ -371,26 +448,29 @@ function LiveMarkdownWorkspace({
             <button
               type="button"
               onClick={() => setMode((prevMode) => (prevMode === 'edit' ? 'read' : 'edit'))}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[#30363d] bg-[#0a1017] px-3 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white"
+              aria-label={mode === 'edit' ? '切换到阅读模式' : '切换到编辑模式'}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[#30363d] bg-[#0a1017] px-2.5 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white md:px-3"
             >
               {mode === 'edit' ? <ReadIcon /> : <EditIcon />}
-              {mode === 'edit' ? '阅读模式' : '编辑模式'}
+              <span className="hidden sm:inline">{mode === 'edit' ? '阅读模式' : '编辑模式'}</span>
             </button>
             <button
               type="button"
               onClick={handleExportPdf}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[#30363d] bg-[#0a1017] px-3 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white"
+              aria-label="导出 PDF"
+              className="inline-flex items-center gap-1.5 rounded-full border border-[#30363d] bg-[#0a1017] px-2.5 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white md:px-3"
             >
               <Download className="h-4 w-4" />
-              导出 PDF
+              <span className="hidden md:inline">导出 PDF</span>
             </button>
             <button
               type="button"
               onClick={handleCopy}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[#30363d] bg-slate-950 px-3 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white"
+              aria-label="复制 Markdown"
+              className="inline-flex items-center gap-1.5 rounded-full border border-[#30363d] bg-slate-950 px-2.5 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white md:px-3"
             >
               <CopyIcon />
-              {copyLabel}
+              <span className="hidden sm:inline">{copyLabel}</span>
             </button>
           </div>
         </div>
@@ -398,8 +478,8 @@ function LiveMarkdownWorkspace({
 
       <div className="print-hide min-h-0 flex-1">
         {mode === 'edit' ? (
-          <div className="h-full overflow-y-auto px-5 py-5">
-            <div className="h-full rounded-[28px] border border-[#202833] bg-[#070c12] p-5">
+          <div className="h-full overflow-y-auto px-3 py-3 md:px-5 md:py-5">
+            <div className="h-full rounded-[20px] border border-[#202833] bg-[#070c12] p-3 md:rounded-[28px] md:p-5">
             <CodeEditor
               value={value}
               onValueChange={onChange}
@@ -428,8 +508,8 @@ function LiveMarkdownWorkspace({
         ) : (
           <Fragment>
             {/* react-markdown 产出块级节点，外层用 article，勿包在段落等行内容器内 */}
-            <div className="h-full overflow-y-auto px-6 py-10 md:px-12 lg:px-20">
-              <article className="prose prose-base md:prose-lg prose-invert prose-pre:bg-slate-900 prose-pre:p-5 prose-pre:rounded-lg prose-pre:border prose-pre:border-zinc-700/50 prose-pre:shadow-inner prose-code:bg-transparent mx-auto w-full max-w-5xl overflow-x-auto rounded-[28px] border border-[#202833] bg-[#070c12] p-6 md:p-8">
+            <div className="h-full overflow-y-auto px-4 py-6 md:px-12 md:py-10 lg:px-20">
+              <article className="prose prose-base md:prose-lg prose-invert prose-pre:bg-slate-900 prose-pre:p-5 prose-pre:rounded-lg prose-pre:border prose-pre:border-zinc-700/50 prose-pre:shadow-inner prose-code:bg-transparent mx-auto w-full max-w-5xl overflow-x-auto rounded-[20px] border border-[#202833] bg-[#070c12] p-4 md:rounded-[28px] md:p-8">
                 <ReactMarkdown
                   remarkPlugins={[...markdownPlugins]}
                   rehypePlugins={[...rehypePlugins]}

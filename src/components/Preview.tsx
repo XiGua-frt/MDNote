@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { isValidElement, useEffect, useMemo, useState } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -7,6 +8,7 @@ import rehypeRaw from 'rehype-raw';
 import Prism from '../prism-loader';
 import { formatMarkdownSource } from '../utils/formatMarkdownSource';
 import { coercePrismLanguage, resolvePrismLanguage } from '../utils/resolvePrismLanguage';
+import MermaidBlock from './MermaidBlock';
 
 function renderHighlightedCodeBlock(text: string, canonicalLanguage: string, className?: string) {
   try {
@@ -36,6 +38,17 @@ function renderHighlightedCodeBlock(text: string, canonicalLanguage: string, cla
 const markdownPlugins = [remarkGfm, remarkBreaks] as const;
 const rehypePlugins = [rehypeRaw] as const;
 
+function isMermaidElement(node: ReactNode): boolean {
+  if (!isValidElement(node)) return false;
+  const className = (node as ReactElement<{ className?: string }>).props?.className;
+  return typeof className === 'string' && /\blanguage-mermaid\b/.test(className);
+}
+
+function hasMermaidChild(children: ReactNode): boolean {
+  const arr = Array.isArray(children) ? children : [children];
+  return arr.some(isMermaidElement);
+}
+
 const markdownComponents: Components = {
   table({ children, ...props }) {
     return (
@@ -44,11 +57,22 @@ const markdownComponents: Components = {
       </div>
     );
   },
+  pre({ children, ...props }) {
+    if (hasMermaidChild(children)) {
+      return <>{children}</>;
+    }
+    return <pre {...props}>{children}</pre>;
+  },
   code({ className, children, ...props }) {
     const match = /language-([a-zA-Z0-9_-]+)/.exec(className || '');
+    const lang = match?.[1];
     const text = String(children).replace(/\n$/, '');
 
-    if (!text.trim() || !match?.[1]) {
+    if (lang === 'mermaid' && text.trim()) {
+      return <MermaidBlock code={text} />;
+    }
+
+    if (!text.trim() || !lang) {
       return (
         <code className={className} {...props}>
           {children}
@@ -56,7 +80,7 @@ const markdownComponents: Components = {
       );
     }
 
-    return renderHighlightedCodeBlock(text, resolvePrismLanguage(match[1]), className);
+    return renderHighlightedCodeBlock(text, resolvePrismLanguage(lang), className);
   }
 };
 
