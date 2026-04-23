@@ -5,10 +5,12 @@ import LiveMarkdownWorkspace from './components/LiveMarkdownWorkspace';
 import Sidebar from './components/Sidebar';
 import useLocalStorage from './hooks/useLocalStorage';
 import type { SidebarPanel } from './components/Sidebar';
-import type { ImportedNoteDraft, Note } from './types/note';
+import type { Folder, ImportedNoteDraft, Note } from './types/note';
 
 const NOTES_STORAGE_KEY = 'mdnote-notes';
 const ACTIVE_NOTE_STORAGE_KEY = 'mdnote-active-note-id';
+const FOLDERS_STORAGE_KEY = 'mdnote-folders';
+const EXPANDED_FOLDERS_STORAGE_KEY = 'mdnote-folder-expanded';
 
 const INITIAL_MARKDOWN = `# MDNote
 
@@ -197,9 +199,15 @@ function WorkspaceDashboard({ notes, zenMode, onCreateNote, onSelectNote }: Dash
 
 function App() {
   const [notes, setNotes] = useLocalStorage<Note[]>(NOTES_STORAGE_KEY, [createDefaultNote()]);
+  const [folders, setFolders] = useLocalStorage<Folder[]>(FOLDERS_STORAGE_KEY, []);
+  const [expandedFolders, setExpandedFolders] = useLocalStorage<Record<string, boolean>>(
+    EXPANDED_FOLDERS_STORAGE_KEY,
+    {}
+  );
   const [activeNoteId, setActiveNoteId] = useLocalStorage<string | null>(ACTIVE_NOTE_STORAGE_KEY, null);
   const [searchKeyword, setSearchKeyword] = useLocalStorage<string>('mdnote-search', '');
   const [activePanel, setActivePanel] = useState<SidebarPanel>('notes');
+  const [hasMounted, setHasMounted] = useState(false);
 
   const orderedNotes = useMemo(
     () => [...notes].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -220,14 +228,21 @@ function App() {
     });
   }, [orderedNotes, searchKeyword]);
 
-  const currentNote = notes.find((note) => note.id === activeNoteId) ?? null;
+  const effectiveActiveNoteId = hasMounted ? activeNoteId : null;
+  const currentNote = notes.find((note) => note.id === effectiveActiveNoteId) ?? null;
   const zenMode = activePanel === null;
+
+  useEffect(() => {
+    // 每次进入应用首页时，默认回到 Dashboard，而不是自动打开历史笔记。
+    setActiveNoteId(null);
+    setHasMounted(true);
+  }, [setActiveNoteId]);
 
   useEffect(() => {
     if (notes.length === 0) {
       const fallback = createDefaultNote();
       setNotes([fallback]);
-      setActiveNoteId(fallback.id);
+      setActiveNoteId(null);
       return;
     }
 
@@ -280,28 +295,135 @@ function App() {
     if (drafts.length === 0) return;
 
     const now = Date.now();
-    const existingTitles = new Set(notes.map((note) => note.title));
+    const newFolders: Folder[] = [];
+    const expandedAdditions: Record<string, boolean> = {};
+    const folderIdByPath = new Map<string, string>();
+
+    const buildPath = (folder: Folder): string => {
+      const segments: string[] = [];
+      let cursor: Folder | undefined = folder;
+      while (cursor) {
+        segments.unshift(cursor.name);
+        cursor = folders.find((item) => item.id === cursor!.parentId);
+      }
+      return segments.join('/');
+    };
+    folders.forEach((folder) => {
+      folderIdByPath.set(buildPath(folder), folder.id);
+    });
+
+    const ensureFolderPath = (segments: string[] | undefined): string | null => {
+      if (!segments || segments.length === 0) return null;
+      let parentId: string | null = null;
+      const accum: string[] = [];
+      for (const segment of segments) {
+        accum.push(segment);
+        const key = accum.join('/');
+        let folderId = folderIdByPath.get(key);
+        if (!folderId) {
+          folderId = createId();
+          newFolders.push({ id: folderId, name: segment, parentId, createdAt: now });
+          folderIdByPath.set(key, folderId);
+          expandedAdditions[folderId] = true;
+        }
+        parentId = folderId;
+      }
+      return parentId;
+    };
+
+    const buildTitleKey = (folderId: string | null, title: string) => `${folderId ?? ''}::${title}`;
+    const existingTitles = new Set(
+      notes.map((note) => buildTitleKey(note.folderId ?? null, note.title))
+    );
+
     const createdNotes: Note[] = drafts.map((draft, index) => {
+      const folderId = ensureFolderPath(draft.folderPath);
       let title = draft.title.slice(0, 40) || extractTitle(draft.content);
-      if (existingTitles.has(title)) {
+      if (existingTitles.has(buildTitleKey(folderId, title))) {
         // 避免覆盖同名笔记：拼接导入时间戳，若仍撞名再附加批量序号。
         const suffix = formatImportTimestamp(now);
         title = `${title}（导入 ${suffix}）`;
-        if (existingTitles.has(title)) {
+        if (existingTitles.has(buildTitleKey(folderId, title))) {
           title = `${title} #${index + 1}`;
         }
       }
-      existingTitles.add(title);
+      existingTitles.add(buildTitleKey(folderId, title));
       return {
         id: createId(),
         title,
         content: draft.content,
-        updatedAt: now + index
+        updatedAt: now + index,
+        folderId
       };
     });
 
-    setNotes((prevNotes) => [...createdNotes, ...prevNotes]);
+    if (newFolders.length > 0) {
+      setFolders((prev) => [...prev, ...newFolders]);
+      setExpandedFolders((prev) => ({ ...prev, ...expandedAdditions }));
+    }
+    setNotes((prev) => [...createdNotes, ...prev]);
     setActiveNoteId(createdNotes[0].id);
+  };
+
+  const handleCreateFolder = (name: string, parentId: string | null) => {
+    const safeName = name.trim() || '未命名文件夹';
+    const newFolder: Folder = {
+      id: createId(),
+      name: safeName,
+      parentId,
+      createdAt: Date.now()
+    };
+    setFolders((prev) => [...prev, newFolder]);
+    setExpandedFolders((prev) => ({ ...prev, [newFolder.id]: true }));
+    if (parentId) {
+      setExpandedFolders((prev) => ({ ...prev, [parentId]: true }));
+    }
+  };
+
+  const handleRenameFolder = (folderId: string, nextName: string) => {
+    const safeName = nextName.trim();
+    if (!safeName) return;
+    setFolders((prev) => prev.map((folder) => (folder.id === folderId ? { ...folder, name: safeName } : folder)));
+  };
+
+  const handleDeleteFolder = (folderId: string) => {
+    // 收集所有后代文件夹 id（含自身）。
+    const descendants = new Set<string>();
+    const queue = [folderId];
+    while (queue.length > 0) {
+      const current = queue.shift() as string;
+      descendants.add(current);
+      folders.forEach((folder) => {
+        if (folder.parentId === current) queue.push(folder.id);
+      });
+    }
+    // 删除子孙文件夹；其中所有笔记回落到根目录，避免数据丢失。
+    setFolders((prev) => prev.filter((folder) => !descendants.has(folder.id)));
+    setNotes((prev) =>
+      prev.map((note) =>
+        note.folderId && descendants.has(note.folderId) ? { ...note, folderId: null } : note
+      )
+    );
+    setExpandedFolders((prev) => {
+      const next = { ...prev };
+      descendants.forEach((id) => {
+        delete next[id];
+      });
+      return next;
+    });
+  };
+
+  const handleToggleFolder = (folderId: string) => {
+    setExpandedFolders((prev) => ({ ...prev, [folderId]: !prev[folderId] }));
+  };
+
+  const handleMoveNoteToFolder = (noteId: string, folderId: string | null) => {
+    setNotes((prev) =>
+      prev.map((note) => (note.id === noteId ? { ...note, folderId, updatedAt: Date.now() } : note))
+    );
+    if (folderId) {
+      setExpandedFolders((prev) => ({ ...prev, [folderId]: true }));
+    }
   };
 
   const handlePanelChange = (panel: SidebarPanel) => {
@@ -313,6 +435,8 @@ function App() {
       <div className="flex h-full min-h-0">
         <Sidebar
           notes={orderedNotes}
+          folders={folders}
+          expandedFolders={expandedFolders}
           searchResults={filteredNotes}
           activeNoteId={activeNoteId}
           searchKeyword={searchKeyword}
@@ -323,6 +447,11 @@ function App() {
           onCreateNote={handleCreateNote}
           onSelectNote={setActiveNoteId}
           onDeleteNote={handleDeleteNote}
+          onCreateFolder={handleCreateFolder}
+          onRenameFolder={handleRenameFolder}
+          onDeleteFolder={handleDeleteFolder}
+          onToggleFolder={handleToggleFolder}
+          onMoveNoteToFolder={handleMoveNoteToFolder}
         />
 
         <div className="flex min-w-0 flex-1 flex-col">

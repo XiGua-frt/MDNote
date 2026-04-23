@@ -89,6 +89,15 @@ function stripExtension(fileName: string): string {
 const isDirectoryPickerSupported =
   typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
+function extractFolderPath(file: File): string[] {
+  // `webkitRelativePath` 由 <input webkitdirectory> 与 browser-fs-access 的现代实现都会填充。
+  const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+  if (!rel) return [];
+  const parts = rel.split('/').filter(Boolean);
+  if (parts.length <= 1) return [];
+  return parts.slice(0, -1);
+}
+
 async function buildDraftsFromFiles(files: readonly File[]): Promise<ImportedNoteDraft[]> {
   const importable = files.filter((file) => hasImportableExtension(file.name));
   if (importable.length === 0) {
@@ -102,7 +111,8 @@ async function buildDraftsFromFiles(files: readonly File[]): Promise<ImportedNot
         return {
           name: file.name,
           size: file.size,
-          content: formatMarkdownSource(text)
+          content: formatMarkdownSource(text),
+          folderPath: extractFolderPath(file)
         };
       } catch (error) {
         console.warn(`[MDNote] 读取文件失败：${file.name}`, error);
@@ -111,19 +121,20 @@ async function buildDraftsFromFiles(files: readonly File[]): Promise<ImportedNot
     })
   );
 
-  // In-batch 去重：按 name+size 作为轻量指纹，避免同源重复写入。
+  // In-batch 去重：按 folderPath+name+size 作为轻量指纹，避免同源重复写入。
   const seen = new Set<string>();
   const drafts: ImportedNoteDraft[] = [];
   for (const item of readResults) {
     if (!item) continue;
-    const fingerprint = `${item.name}|${item.size}`;
+    const fingerprint = `${item.folderPath.join('/')}::${item.name}|${item.size}`;
     if (seen.has(fingerprint)) continue;
     seen.add(fingerprint);
     drafts.push({
       title: stripExtension(item.name),
       content: item.content,
       sourceName: item.name,
-      sourceSize: item.size
+      sourceSize: item.size,
+      folderPath: item.folderPath.length > 0 ? item.folderPath : undefined
     });
   }
   return drafts;

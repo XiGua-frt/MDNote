@@ -1,13 +1,77 @@
-import { useMemo } from 'react';
-import type { SVGProps } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent, ReactNode, SVGProps } from 'react';
+import {
+  DndContext,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors
+} from '@dnd-kit/core';
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import {
+  ChevronDown,
+  ChevronRight,
+  Edit3,
+  FilePlus,
+  FileText,
+  Folder as FolderIcon,
+  FolderOpen,
+  FolderPlus,
+  FolderInput,
+  Trash2
+} from 'lucide-react';
 import type { AuthorProfile } from '../types/authorProfile';
-import type { Note } from '../types/note';
+import type { Folder, Note } from '../types/note';
 import logoImage from '../../assets/logo.jpg';
+
+const DRAG_NOTE_PREFIX = 'note::';
+const DROP_FOLDER_PREFIX = 'folder::';
+
+interface DraggableNoteRowProps {
+  noteId: string;
+  children: (args: { isDragging: boolean; dragHandleProps: Record<string, unknown> }) => ReactNode;
+}
+
+function DraggableNoteRow({ noteId, children }: DraggableNoteRowProps) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `${DRAG_NOTE_PREFIX}${noteId}`
+  });
+  const dragHandleProps = {
+    ...attributes,
+    ...listeners
+  } as Record<string, unknown>;
+  return (
+    <div
+      ref={setNodeRef}
+      className={isDragging ? 'opacity-40' : ''}
+      style={{ touchAction: 'none' }}
+    >
+      {children({ isDragging, dragHandleProps })}
+    </div>
+  );
+}
+
+interface DroppableFolderShellProps {
+  folderId: string;
+  disabled?: boolean;
+  children: (args: { isOver: boolean }) => ReactNode;
+}
+
+function DroppableFolderShell({ folderId, disabled, children }: DroppableFolderShellProps) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `${DROP_FOLDER_PREFIX}${folderId}`,
+    disabled
+  });
+  return <div ref={setNodeRef}>{children({ isOver })}</div>;
+}
 
 export type SidebarPanel = 'notes' | 'search' | 'author' | 'wechat' | null;
 
 interface SidebarProps {
   notes: Note[];
+  folders: Folder[];
+  expandedFolders: Record<string, boolean>;
   searchResults: Note[];
   activeNoteId: string | null;
   searchKeyword: string;
@@ -18,7 +82,22 @@ interface SidebarProps {
   onCreateNote: () => void;
   onSelectNote: (noteId: string | null) => void;
   onDeleteNote: (noteId: string) => void;
+  onCreateFolder: (name: string, parentId: string | null) => void;
+  onRenameFolder: (folderId: string, nextName: string) => void;
+  onDeleteFolder: (folderId: string) => void;
+  onToggleFolder: (folderId: string) => void;
+  onMoveNoteToFolder: (noteId: string, folderId: string | null) => void;
   onNavigateHome?: () => void;
+}
+
+type FolderEditingDraft =
+  | { mode: 'create'; parentId: string | null }
+  | { mode: 'rename'; folderId: string; initialName: string };
+
+interface FolderTreeNode {
+  folder: Folder;
+  children: FolderTreeNode[];
+  notes: Note[];
 }
 
 interface IconProps extends SVGProps<SVGSVGElement> {
@@ -195,6 +274,8 @@ function formatDate(timestamp: number): string {
 
 function Sidebar({
   notes,
+  folders,
+  expandedFolders,
   searchResults,
   activeNoteId,
   searchKeyword,
@@ -205,8 +286,70 @@ function Sidebar({
   onCreateNote,
   onSelectNote,
   onDeleteNote,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onToggleFolder,
+  onMoveNoteToFolder,
   onNavigateHome
 }: SidebarProps) {
+  const [folderDraft, setFolderDraft] = useState<FolderEditingDraft | null>(null);
+  const [folderDraftName, setFolderDraftName] = useState('');
+  const [moveMenuNoteId, setMoveMenuNoteId] = useState<string | null>(null);
+  const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null);
+  const moveMenuRef = useRef<HTMLDivElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 }
+    })
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const rawId = String(event.active.id);
+    if (rawId.startsWith(DRAG_NOTE_PREFIX)) {
+      setDraggingNoteId(rawId.slice(DRAG_NOTE_PREFIX.length));
+    }
+  };
+
+  const handleDragCancel = () => {
+    setDraggingNoteId(null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setDraggingNoteId(null);
+    const { active, over } = event;
+    if (!over) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    if (!activeId.startsWith(DRAG_NOTE_PREFIX) || !overId.startsWith(DROP_FOLDER_PREFIX)) return;
+    const noteId = activeId.slice(DRAG_NOTE_PREFIX.length);
+    const folderId = overId.slice(DROP_FOLDER_PREFIX.length);
+    const note = notes.find((item) => item.id === noteId);
+    if (!note) return;
+    if (note.folderId === folderId) return;
+    onMoveNoteToFolder(noteId, folderId);
+  };
+
+  useEffect(() => {
+    if (folderDraft) {
+      folderInputRef.current?.focus();
+      folderInputRef.current?.select();
+    }
+  }, [folderDraft]);
+
+  useEffect(() => {
+    if (!moveMenuNoteId) return;
+    const handleClickAway = (event: MouseEvent) => {
+      if (!moveMenuRef.current?.contains(event.target as Node)) {
+        setMoveMenuNoteId(null);
+      }
+    };
+    window.addEventListener('mousedown', handleClickAway);
+    return () => window.removeEventListener('mousedown', handleClickAway);
+  }, [moveMenuNoteId]);
+
   const noteMetrics = useMemo(
     () => ({
       total: notes.length,
@@ -214,6 +357,93 @@ function Sidebar({
     }),
     [notes]
   );
+
+  const folderTree = useMemo<{ roots: FolderTreeNode[]; rootNotes: Note[] }>(() => {
+    const byParent = new Map<string | null, Folder[]>();
+    folders.forEach((folder) => {
+      const key = folder.parentId ?? null;
+      const bucket = byParent.get(key) ?? [];
+      bucket.push(folder);
+      byParent.set(key, bucket);
+    });
+    const notesByFolder = new Map<string | null, Note[]>();
+    notes.forEach((note) => {
+      const key = note.folderId ?? null;
+      const bucket = notesByFolder.get(key) ?? [];
+      bucket.push(note);
+      notesByFolder.set(key, bucket);
+    });
+
+    const sortFolders = (list: Folder[] = []) =>
+      [...list].sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+
+    const buildNode = (folder: Folder): FolderTreeNode => ({
+      folder,
+      children: sortFolders(byParent.get(folder.id) ?? []).map(buildNode),
+      notes: notesByFolder.get(folder.id) ?? []
+    });
+
+    return {
+      roots: sortFolders(byParent.get(null) ?? []).map(buildNode),
+      rootNotes: notesByFolder.get(null) ?? []
+    };
+  }, [folders, notes]);
+
+  const folderPathOptions = useMemo(() => {
+    const folderById = new Map<string, Folder>();
+    folders.forEach((folder) => folderById.set(folder.id, folder));
+    const buildPath = (folderId: string): string => {
+      const segments: string[] = [];
+      let cursor: Folder | undefined = folderById.get(folderId);
+      while (cursor) {
+        segments.unshift(cursor.name);
+        cursor = cursor.parentId ? folderById.get(cursor.parentId) : undefined;
+      }
+      return segments.join(' / ');
+    };
+    return folders
+      .map((folder) => ({ id: folder.id, label: buildPath(folder.id) }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'zh'));
+  }, [folders]);
+
+  const openFolderCreator = (parentId: string | null) => {
+    setFolderDraft({ mode: 'create', parentId });
+    setFolderDraftName('');
+  };
+
+  const openFolderRenamer = (folder: Folder) => {
+    setFolderDraft({ mode: 'rename', folderId: folder.id, initialName: folder.name });
+    setFolderDraftName(folder.name);
+  };
+
+  const commitFolderDraft = () => {
+    if (!folderDraft) return;
+    const trimmed = folderDraftName.trim();
+    if (folderDraft.mode === 'create') {
+      if (trimmed) {
+        onCreateFolder(trimmed, folderDraft.parentId);
+      }
+    } else if (trimmed && trimmed !== folderDraft.initialName) {
+      onRenameFolder(folderDraft.folderId, trimmed);
+    }
+    setFolderDraft(null);
+    setFolderDraftName('');
+  };
+
+  const cancelFolderDraft = () => {
+    setFolderDraft(null);
+    setFolderDraftName('');
+  };
+
+  const handleFolderInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commitFolderDraft();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      cancelFolderDraft();
+    }
+  };
 
   const handleLogoClick = () => {
     onSelectNote(null);
@@ -271,82 +501,321 @@ function Sidebar({
     );
   };
 
-  const renderNoteButton = (note: Note) => {
+  const renderNoteRow = (note: Note, depth: number) => {
     const isActive = note.id === activeNoteId;
+    const paddingLeft = depth * 14 + 10;
 
     return (
+      <DraggableNoteRow key={note.id} noteId={note.id}>
+        {({ dragHandleProps }) => (
       <div
-        className={`relative rounded-2xl border px-3 py-3 transition ${
-          isActive
-            ? 'border-[#58a6ff] bg-[#132238] text-indigo-100'
-            : 'border-[#202833] bg-[#0c121a] text-slate-200 hover:border-[#314254] hover:bg-[#111927]'
+        className={`group relative flex items-center gap-1.5 rounded-md py-1 pr-2 text-sm transition ${
+          isActive ? 'bg-white/10 text-slate-50' : 'text-slate-300 hover:bg-white/5'
         }`}
+        style={{ paddingLeft }}
+        {...(dragHandleProps as Record<string, unknown>)}
       >
+        <FileText className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden="true" />
         <button
           type="button"
           onClick={() => onSelectNote(isActive ? null : note.id)}
-          className="block w-full text-left"
+          className="min-w-0 flex-1 truncate text-left"
+          title={note.title}
         >
-          <p className="truncate text-sm font-medium">{note.title}</p>
-          <div className="mt-3 flex min-h-7 items-center justify-between pr-16">
-            <span className="text-[11px] uppercase tracking-[0.24em] text-slate-600">
-            {isActive ? 'Active' : 'Note'}
-            </span>
-            <p className="text-xs text-slate-500">{formatDate(note.updatedAt)}</p>
+          {note.title}
+        </button>
+        <div className="ml-1 hidden items-center gap-1 text-slate-500 group-hover:flex">
+          <button
+            type="button"
+            aria-label="移动到文件夹"
+            title="移动到文件夹"
+            onClick={(event) => {
+              event.stopPropagation();
+              setMoveMenuNoteId((prev) => (prev === note.id ? null : note.id));
+            }}
+            className="rounded p-1 transition hover:bg-white/10 hover:text-slate-100"
+          >
+            <FolderInput className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="删除笔记"
+            title="删除"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDeleteNote(note.id);
+            }}
+            className="rounded p-1 transition hover:bg-red-500/15 hover:text-red-300"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        {moveMenuNoteId === note.id ? (
+          <div
+            ref={moveMenuRef}
+            role="menu"
+            className="absolute right-2 top-full z-30 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-[#30363d] bg-[#0b1220] p-1 shadow-xl shadow-black/50"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={(event) => {
+                event.stopPropagation();
+                onMoveNoteToFolder(note.id, null);
+                setMoveMenuNoteId(null);
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-200 transition hover:bg-white/5"
+            >
+              <FolderIcon className="h-3.5 w-3.5 text-slate-500" />
+              根目录
+            </button>
+            {folderPathOptions.length === 0 ? (
+              <p className="px-2 py-1.5 text-[11px] text-slate-500">尚未创建文件夹</p>
+            ) : (
+              folderPathOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="menuitem"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onMoveNoteToFolder(note.id, option.id);
+                    setMoveMenuNoteId(null);
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition hover:bg-white/5 ${
+                    note.folderId === option.id ? 'text-slate-50' : 'text-slate-200'
+                  }`}
+                >
+                  <FolderIcon className="h-3.5 w-3.5 text-slate-500" />
+                  <span className="truncate">{option.label}</span>
+                </button>
+              ))
+            )}
           </div>
-        </button>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onDeleteNote(note.id);
-          }}
-          className="absolute bottom-2.5 right-2.5 rounded-full px-2.5 py-1 text-xs text-[#f85149] transition hover:bg-red-500/15 hover:text-red-300"
+        ) : null}
+      </div>
+        )}
+      </DraggableNoteRow>
+    );
+  };
+
+  const renderFolderRow = (node: FolderTreeNode, depth: number) => {
+    const isExpanded = expandedFolders[node.folder.id] ?? false;
+    const isRenaming = folderDraft?.mode === 'rename' && folderDraft.folderId === node.folder.id;
+    const paddingLeft = depth * 14 + 4;
+    const totalChildren = node.children.length + node.notes.length;
+    const isDndActive = draggingNoteId !== null;
+    const draggingNote = isDndActive
+      ? notes.find((item) => item.id === draggingNoteId) ?? null
+      : null;
+    const dropDisabled =
+      !isDndActive || (draggingNote !== null && draggingNote.folderId === node.folder.id);
+
+    return (
+      <div key={node.folder.id}>
+        <DroppableFolderShell folderId={node.folder.id} disabled={dropDisabled}>
+          {({ isOver }) => (
+        <div
+          className={`group flex items-center gap-1 rounded-md py-1 pr-2 text-sm text-slate-200 transition ${
+            isOver
+              ? 'border border-[#3b82f6] bg-[#132238]/80 text-slate-50 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
+              : 'border border-transparent hover:bg-white/5'
+          }`}
+          style={{ paddingLeft }}
         >
-          删除
-        </button>
+          <button
+            type="button"
+            onClick={() => onToggleFolder(node.folder.id)}
+            aria-label={isExpanded ? '收起文件夹' : '展开文件夹'}
+            className="rounded p-0.5 text-slate-500 transition hover:text-slate-100"
+          >
+            {isExpanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
+          {isExpanded ? (
+            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-300/80" aria-hidden="true" />
+          ) : (
+            <FolderIcon className="h-3.5 w-3.5 shrink-0 text-amber-300/80" aria-hidden="true" />
+          )}
+          {isRenaming ? (
+            <input
+              ref={folderInputRef}
+              value={folderDraftName}
+              onChange={(event) => setFolderDraftName(event.target.value)}
+              onBlur={commitFolderDraft}
+              onKeyDown={handleFolderInputKeyDown}
+              className="min-w-0 flex-1 rounded border border-[#30363d] bg-[#0b1220] px-1.5 py-0.5 text-sm text-slate-100 outline-none focus:border-[#3b82f6]"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => onToggleFolder(node.folder.id)}
+              onDoubleClick={() => openFolderRenamer(node.folder)}
+              className="min-w-0 flex-1 truncate text-left"
+              title={node.folder.name}
+            >
+              {node.folder.name}
+              <span className="ml-1.5 text-[11px] text-slate-500">{totalChildren || ''}</span>
+            </button>
+          )}
+          {!isRenaming ? (
+            <div className="ml-1 hidden items-center gap-1 text-slate-500 group-hover:flex">
+              <button
+                type="button"
+                aria-label="在此新建子文件夹"
+                title="新建子文件夹"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openFolderCreator(node.folder.id);
+                }}
+                className="rounded p-1 transition hover:bg-white/10 hover:text-slate-100"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                aria-label="重命名文件夹"
+                title="重命名"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openFolderRenamer(node.folder);
+                }}
+                className="rounded p-1 transition hover:bg-white/10 hover:text-slate-100"
+              >
+                <Edit3 className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                aria-label="删除文件夹"
+                title="删除（内部笔记会移到根目录）"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDeleteFolder(node.folder.id);
+                }}
+                className="rounded p-1 transition hover:bg-red-500/15 hover:text-red-300"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : null}
+        </div>
+          )}
+        </DroppableFolderShell>
+        {isExpanded ? (
+          <div>
+            {folderDraft?.mode === 'create' && folderDraft.parentId === node.folder.id ? (
+              <div
+                className="flex items-center gap-1 rounded-md py-1 pr-2"
+                style={{ paddingLeft: (depth + 1) * 14 + 10 }}
+              >
+                <FolderIcon className="h-3.5 w-3.5 shrink-0 text-amber-300/80" aria-hidden="true" />
+                <input
+                  ref={folderInputRef}
+                  value={folderDraftName}
+                  onChange={(event) => setFolderDraftName(event.target.value)}
+                  onBlur={commitFolderDraft}
+                  onKeyDown={handleFolderInputKeyDown}
+                  placeholder="文件夹名"
+                  className="min-w-0 flex-1 rounded border border-[#30363d] bg-[#0b1220] px-1.5 py-0.5 text-sm text-slate-100 outline-none focus:border-[#3b82f6]"
+                />
+              </div>
+            ) : null}
+            {node.children.map((child) => renderFolderRow(child, depth + 1))}
+            {node.notes.map((note) => renderNoteRow(note, depth + 1))}
+            {totalChildren === 0 && !(folderDraft?.mode === 'create' && folderDraft.parentId === node.folder.id) ? (
+              <div
+                className="py-1 text-[11px] italic text-slate-600"
+                style={{ paddingLeft: (depth + 1) * 14 + 24 }}
+              >
+                （空文件夹）
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   };
 
   const renderPanelContent = () => {
     if (activePanel === 'notes') {
+      const isCreatingRootFolder =
+        folderDraft?.mode === 'create' && folderDraft.parentId === null;
+      const totalRootItems = folderTree.roots.length + folderTree.rootNotes.length;
+
       return (
         <>
           <PanelHeader
             title="笔记列表"
-            description="快速切换、创建或临时取消选中，让工作区进入 Dashboard。"
+            description="树形结构，支持文件夹分组、导入继承目录层级。"
             onClose={() => onPanelChange(null)}
           />
-          <div className="flex items-center justify-between border-b border-[#202833] px-5 py-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Library</p>
-              <p className="mt-1 text-sm text-slate-300">
-                共 {noteMetrics.total} 条，最近更新于 {noteMetrics.recent}
+          <div className="flex items-center justify-between border-b border-[#202833] px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-[0.28em] text-slate-500">Library</p>
+              <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                共 {noteMetrics.total} 条 · {noteMetrics.recent}
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-0.5 text-slate-400">
               <button
                 type="button"
-                onClick={() => onSelectNote(null)}
-                className="rounded-full border border-[#30363d] px-3 py-1.5 text-xs text-slate-300 transition hover:border-slate-500 hover:text-white"
+                aria-label="新建笔记"
+                title="新建笔记"
+                onClick={onCreateNote}
+                className="rounded p-1.5 transition hover:bg-white/10 hover:text-slate-100"
               >
-                Dashboard
+                <FilePlus className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
-                onClick={onCreateNote}
-                className="rounded-full bg-[linear-gradient(135deg,#60a5fa_0%,#2563eb_100%)] px-3 py-1.5 text-xs font-medium text-white transition hover:brightness-110"
+                aria-label="新建文件夹"
+                title="新建文件夹"
+                onClick={() => openFolderCreator(null)}
+                className="rounded p-1.5 transition hover:bg-white/10 hover:text-slate-100"
               >
-                新建
+                <FolderPlus className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
-          <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-            {notes.map((note) => (
-              <div key={note.id}>{renderNoteButton(note)}</div>
-            ))}
-          </div>
+          <DndContext
+            sensors={dndSensors}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
+          >
+            <div className="flex-1 overflow-y-auto px-2 py-2">
+              {isCreatingRootFolder ? (
+                <div
+                  className="flex items-center gap-1 rounded-md py-1 pr-2"
+                  style={{ paddingLeft: 10 }}
+                >
+                  <FolderIcon
+                    className="h-3.5 w-3.5 shrink-0 text-amber-300/80"
+                    aria-hidden="true"
+                  />
+                  <input
+                    ref={folderInputRef}
+                    value={folderDraftName}
+                    onChange={(event) => setFolderDraftName(event.target.value)}
+                    onBlur={commitFolderDraft}
+                    onKeyDown={handleFolderInputKeyDown}
+                    placeholder="文件夹名"
+                    className="min-w-0 flex-1 rounded border border-[#30363d] bg-[#0b1220] px-1.5 py-0.5 text-sm text-slate-100 outline-none focus:border-[#3b82f6]"
+                  />
+                </div>
+              ) : null}
+              {folderTree.roots.map((node) => renderFolderRow(node, 0))}
+              {folderTree.rootNotes.map((note) => renderNoteRow(note, 0))}
+              {totalRootItems === 0 && !isCreatingRootFolder ? (
+                <div className="px-3 py-10 text-center text-xs text-slate-500">
+                  暂无笔记，点击顶部「新建笔记」开始创作。
+                </div>
+              ) : null}
+            </div>
+          </DndContext>
         </>
       );
     }
@@ -356,7 +825,7 @@ function Sidebar({
         <>
           <PanelHeader
             title="搜索"
-            description="同时匹配标题和正文，作为独立功能面板使用。"
+            description="同时匹配标题和正文，跨文件夹检索笔记。"
             onClose={() => onPanelChange(null)}
           />
           <div className="border-b border-[#202833] px-5 py-4">
@@ -367,17 +836,13 @@ function Sidebar({
               className="w-full rounded-2xl border border-[#30363d] bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-slate-500"
             />
           </div>
-          <div className="flex-1 overflow-y-auto px-4 py-4">
+          <div className="flex-1 overflow-y-auto px-2 py-2">
             {searchResults.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-[#30363d] px-4 py-10 text-center text-sm text-slate-400">
+              <div className="mx-2 rounded-2xl border border-dashed border-[#30363d] px-4 py-10 text-center text-sm text-slate-400">
                 没有找到匹配内容，试试正文关键字。
               </div>
             ) : (
-              <div className="space-y-3">
-                {searchResults.map((note) => (
-                  <div key={note.id}>{renderNoteButton(note)}</div>
-                ))}
-              </div>
+              searchResults.map((note) => renderNoteRow(note, 0))
             )}
           </div>
         </>
