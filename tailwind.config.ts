@@ -45,6 +45,13 @@ export default {
             },
             'pre code': {
               fontWeight: '400'
+            },
+            '.mermaid': {
+              marginTop: '1.35em',
+              marginBottom: '1.35em'
+            },
+            '.mermaid + p': {
+              marginTop: '1.15em'
             }
           }
         }

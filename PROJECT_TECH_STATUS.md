@@ -14,7 +14,7 @@
 | **样式** | Tailwind CSS 3.x + PostCSS + Autoprefixer | 响应式与暗色 UI |
 | **排版** | `@tailwindcss/typography` | Markdown 预览区 `prose` 类 |
 | **Markdown 解析** | `react-markdown` v9 + **`remark-gfm`** + **`remark-breaks`** + **`rehype-raw`** | GFM 表格等；换行宽容； fenced 外 HTML 片段解析（注意 XSS 面） |
-| **图表渲染** | **Mermaid**（动态加载） | 识别 ```` ```mermaid ```` 代码块并转 SVG；仅在命中 Mermaid 代码块时才 `import('mermaid')` |
+| **图表渲染** | **Mermaid**（官方 `mermaid` 包） | 识别 ```` ```mermaid ```` 代码块后由 `MermaidRenderer` 直接调用 `mermaid.render()` 输出 SVG 字符串；`MermaidModal` 复用同一份 SVG 做放大预览 |
 | **正文预处理** | `src/utils/formatMarkdownSource.ts` | 统一 CRLF/LF，并将连续空行压缩为双换行后送入解析器 |
 | **代码高亮** | **原生 Prism.js 1.29.0**（已移除 `react-syntax-highlighter`） | `Prism.highlight` + 按需 `import 'prismjs/components/...'`；预览与打印路径统一走同一套 Prism 实例 |
 | **编辑器源码高亮** | `react-simple-code-editor` + Prism | 编辑区对 Markdown 源码做语法着色 |
@@ -43,7 +43,7 @@
 - **删除保护**：笔记/文件夹删除均改为二次确认弹窗；文件夹删除为级联删除（包含所有子文件夹与其下笔记）；若当前选中笔记在删除范围内，自动回到 Dashboard。
 - **主工作区**（`LiveMarkdownWorkspace`）：
   - **编辑模式**：`react-simple-code-editor` + Prism Markdown 高亮。
-  - **阅读模式**：`react-markdown` + 原生 Prism 高亮代码块 + Mermaid 图表渲染（`language-mermaid`）。
+  - **阅读模式**：`react-markdown` + 原生 Prism 高亮代码块 + Mermaid 图表渲染（`language-mermaid` 由 `MermaidRenderer` 处理）。
   - **移动端适配**：保留编辑/阅读单视图切换；工具栏按钮与标题区紧凑化；阅读区 `prose` 在移动端使用 `px-4` 等内边距防贴边。
 - **标题**：由内容或文件名推导；支持 Zen 等与侧栏面板联动。
 
@@ -59,14 +59,20 @@
 ### 3. PDF 导出（浏览器打印）
 
 - 使用 **`react-to-print`**，打印目标为仅包含渲染后 Markdown 的区域（与 `@media print` 样式配合，隐藏工具栏、侧栏等）。
-- 当文档包含 Mermaid 图表时，导出前会等待异步渲染完成（通过渲染追踪器），避免打印结果出现空白图或 loading 占位。
+- 当文档包含 Mermaid 图表时，导出前会等待 Markdown 异步管线完成，再进入打印，避免打印结果出现空白图或 loading 占位。
 - 用户在系统打印对话框中选择 **「另存为 PDF」**（或 macOS 的「存储为 PDF」）即可导出。
 
 ### 4. 其他
 
 - **复制**：可将当前笔记 Markdown 复制到剪贴板。
 - **打印样式**：`src/index.css` 中 `@media print` 控制边距、分页、链接不追加 URL 等。
-- **Mermaid 体验**：图表容器使用 `overflow-x-auto` 兼容超宽链路图；渲染期间提供轻量 loading，占位失败时回退错误提示与源码。
+- **Mermaid 体验**：图表容器使用 `overflow-x-auto` 兼容超宽链路图；支持点击放大、滚轮缩放、拖拽平移与双击重置。
+- **Mermaid 单链路重构（已完成）**：
+  - Mermaid 初始化统一在 `src/utils/mermaidInit.ts`，应用启动时调用一次 `mermaid.initialize({ theme: 'base', securityLevel: 'loose', themeVariables })`；
+  - Markdown 管线中不再使用 `rehype-mermaid`；`language-mermaid` 代码块由 `MermaidRenderer` 直接调用 `mermaid.render(id, code)`；
+  - Modal 由 `MermaidModal` 负责，直接展示 `MermaidRenderer` 生成的同一份 `svgString`，不重新渲染，避免普通视图与弹窗视图差异；
+  - 通过唯一 `id`（`useId` + 计数）规避 Mermaid 内部缓存导致的旧 SVG 复用问题；
+  - 删除旧模块：`src/components/MermaidBlock.tsx`、`src/components/ZoomableSvg.tsx`、`src/utils/mermaidLoader.ts`。
 
 ### 5. 首页 Dashboard 与版式
 
@@ -88,19 +94,21 @@
 
 | 路径 | 作用 |
 |------|------|
-| `src/main.tsx` | 应用入口；`import './prism-loader'` |
+| `src/main.tsx` | 应用入口；`import './prism-loader'` 与 `import './utils/mermaidInit'` |
 | `src/prism-loader.ts` | Prism 核心 + 语言包顺序加载 + 主题 + `window.Prism` |
 | `src/utils/resolvePrismLanguage.ts` | 围栏语言别名、`coercePrismLanguage` 兜底 |
 | `src/utils/formatMarkdownSource.ts` | 送入 `react-markdown` 前的轻量换行清洗 |
-| `src/utils/mermaidLoader.ts` | Mermaid 动态加载、主题初始化与渲染追踪（供打印前等待） |
+| `src/utils/mermaidInit.ts` | Mermaid 全局单次初始化（`theme: 'base'` + `themeVariables`） |
 | `src/config/author.ts` | 作者品牌静态配置（作者、公众号、GitHub、二维码） |
 | `src/vite-env.d.ts` | `vite/client` 类型（如 `import.meta.env`） |
 | `src/App.tsx` | 路由级布局、笔记状态、Dashboard、移动端侧栏抽屉显隐与级联删除逻辑 |
 | `src/components/FeatureCarousel.tsx` | 首页特性轮播（无第三方轮播库） |
-| `src/components/LiveMarkdownWorkspace.tsx` | 编辑/阅读切换、批量导入（文件/文件夹）、Mermaid + Prism 渲染、导出 PDF（含 Mermaid 渲染完成等待） |
-| `src/components/MermaidBlock.tsx` | Mermaid 代码块异步渲染组件（loading/error/SVG 容器） |
+| `src/components/LiveMarkdownWorkspace.tsx` | 编辑/阅读切换、批量导入（文件/文件夹）、Markdown + Prism 渲染、导出 PDF |
+| `src/components/MermaidRenderer.tsx` | Mermaid 唯一渲染入口：`code -> mermaid.render() -> svgString`，并负责点击打开 Modal |
+| `src/components/MermaidModal.tsx` | Mermaid 全屏预览：复用同一份 `svgString`，支持滚轮缩放、拖拽平移、ESC/遮罩关闭 |
 | `src/components/Sidebar.tsx` | 侧栏导航、紧凑树形文件夹/笔记结构、拖拽归档（`@dnd-kit`）、删除确认弹窗与移动端抽屉 |
-| `src/components/Preview.tsx` | 独立预览中的 Markdown + Prism + Mermaid |
+| `src/components/Preview.tsx` | 独立预览中的 Markdown + Prism + Mermaid（`language-mermaid` 映射到 `MermaidRenderer`） |
+| `src/hooks/useAsyncMarkdown.ts` | Markdown 异步管线：remark/rehype（不再包含 `rehype-mermaid`） |
 | `src/hooks/useLocalStorage.ts` | 本地存储封装 |
 | `src/types/note.ts` | 笔记与文件夹数据模型（`Note` / `Folder` / `ImportedNoteDraft`） |
 | `vite.config.ts` | Vite 与依赖预构建（如 `optimizeDeps` 含 `prismjs`） |

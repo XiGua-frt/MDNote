@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './prism-loader';
+import './utils/mermaidInit';
 import App from './App';
 import './index.css';
 

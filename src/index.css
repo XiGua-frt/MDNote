@@ -76,7 +76,7 @@ body {
   color: rgb(210 220 235) !important;
 }
 
-/* Mermaid 渲染容器：自适应宽度、保留滚动条以容纳超宽链路图 */
+/* Mermaid 图表容器 */
 .mermaid-block {
   display: block;
 }
@@ -86,12 +86,6 @@ body {
   max-width: 100%;
   height: auto;
   margin: 0 auto;
-}
-
-.mermaid-modal-svg svg {
-  display: block;
-  max-width: none;
-  height: auto;
 }
 
 .wechat-marquee {
@@ -200,17 +194,8 @@ body {
     text-decoration: underline;
   }
 
-  /* 打印时 Mermaid 图表：纯白底 + 浅灰边框，且加载/错误占位不参与打印 */
   .mermaid-block {
-    background: #ffffff !important;
-    border-color: #d1d5db !important;
-    color: #111827 !important;
     break-inside: avoid;
     page-break-inside: avoid;
-  }
-
-  .mermaid-block--loading,
-  .mermaid-block--error {
-    display: none !important;
   }
 }

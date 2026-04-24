@@ -1,14 +1,11 @@
-import { isValidElement, useEffect, useMemo, useState } from 'react';
-import type { ReactElement, ReactNode } from 'react';
-import ReactMarkdown from 'react-markdown';
-import type { Components } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
-import rehypeRaw from 'rehype-raw';
+import { Children, isValidElement, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { Loader2 } from 'lucide-react';
+import type { Components } from 'hast-util-to-jsx-runtime';
 import Prism from '../prism-loader';
 import { formatMarkdownSource } from '../utils/formatMarkdownSource';
 import { coercePrismLanguage, resolvePrismLanguage } from '../utils/resolvePrismLanguage';
-import MermaidBlock from './MermaidBlock';
+import { useAsyncMarkdown } from '../hooks/useAsyncMarkdown';
+import MermaidRenderer from './MermaidRenderer';
 
 function renderHighlightedCodeBlock(text: string, canonicalLanguage: string, className?: string) {
   try {
@@ -35,21 +32,7 @@ function renderHighlightedCodeBlock(text: string, canonicalLanguage: string, cla
   }
 }
 
-const markdownPlugins = [remarkGfm, remarkBreaks] as const;
-const rehypePlugins = [rehypeRaw] as const;
-
-function isMermaidElement(node: ReactNode): boolean {
-  if (!isValidElement(node)) return false;
-  const className = (node as ReactElement<{ className?: string }>).props?.className;
-  return typeof className === 'string' && /\blanguage-mermaid\b/.test(className);
-}
-
-function hasMermaidChild(children: ReactNode): boolean {
-  const arr = Array.isArray(children) ? children : [children];
-  return arr.some(isMermaidElement);
-}
-
-const markdownComponents: Components = {
+const markdownComponents: Partial<Components> = {
   table({ children, ...props }) {
     return (
       <div style={{ display: 'block' }} className="my-6 w-full max-w-full overflow-x-auto">
@@ -58,7 +41,8 @@ const markdownComponents: Components = {
     );
   },
   pre({ children, ...props }) {
-    if (hasMermaidChild(children)) {
+    const arr = Children.toArray(children);
+    if (arr.some((c) => isValidElement(c) && c.type === MermaidRenderer)) {
       return <>{children}</>;
     }
     return <pre {...props}>{children}</pre>;
@@ -68,16 +52,16 @@ const markdownComponents: Components = {
     const lang = match?.[1];
     const text = String(children).replace(/\n$/, '');
 
-    if (lang === 'mermaid' && text.trim()) {
-      return <MermaidBlock code={text} />;
-    }
-
     if (!text.trim() || !lang) {
       return (
         <code className={className} {...props}>
           {children}
         </code>
       );
+    }
+
+    if (lang === 'mermaid') {
+      return <MermaidRenderer code={text} />;
     }
 
     return renderHighlightedCodeBlock(text, resolvePrismLanguage(lang), className);
@@ -91,11 +75,16 @@ interface PreviewProps {
 
 function Preview({ content, zenMode = false }: PreviewProps) {
   const [copyLabel, setCopyLabel] = useState<string>('复制');
-  const markdownForPreview = useMemo(() => formatMarkdownSource(content), [content]);
+  const deferredContent = useDeferredValue(content);
+  const markdownForPreview = useMemo(() => formatMarkdownSource(deferredContent), [deferredContent]);
+  const { content: renderedMarkdown, isProcessing } = useAsyncMarkdown(
+    markdownForPreview,
+    markdownComponents
+  );
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
-    console.log('[MDNote][Preview] formatMarkdownSource → react-markdown input:\n', markdownForPreview);
+    console.log('[MDNote][Preview] formatMarkdownSource → unified input:\n', markdownForPreview);
   }, [markdownForPreview]);
 
   const handleCopy = async () => {
@@ -128,15 +117,16 @@ function Preview({ content, zenMode = false }: PreviewProps) {
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-10 md:px-12 lg:px-20">
-        <article className="prose prose-base md:prose-lg prose-invert mx-auto w-full max-w-5xl overflow-x-auto rounded-[28px] border border-[#202833] bg-[#070c12] p-6 md:p-8">
-          <ReactMarkdown
-            remarkPlugins={[...markdownPlugins]}
-            rehypePlugins={[...rehypePlugins]}
-            components={markdownComponents}
-          >
-            {markdownForPreview}
-          </ReactMarkdown>
-        </article>
+        {isProcessing && !renderedMarkdown ? (
+          <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-400" role="status" aria-live="polite">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            正在渲染 Markdown…
+          </div>
+        ) : (
+          <article className="prose prose-base md:prose-lg prose-invert mx-auto w-full max-w-5xl overflow-x-auto rounded-[28px] border border-[#202833] bg-[#070c12] p-6 md:p-8">
+            {renderedMarkdown}
+          </article>
+        )}
       </div>
     </section>
   );

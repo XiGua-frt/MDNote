@@ -1,20 +1,15 @@
-import { Fragment, isValidElement, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactElement, ReactNode } from 'react';
+import { Children, Fragment, isValidElement, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { directoryOpen, fileOpen } from 'browser-fs-access';
 import { ChevronDown, Download, FileUp, FolderUp, Loader2 } from 'lucide-react';
 import type { ImportedNoteDraft } from '../types/note';
 import CodeEditor from 'react-simple-code-editor';
 import Prism from '../prism-loader';
-import ReactMarkdown from 'react-markdown';
-import type { Components } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
-import rehypeRaw from 'rehype-raw';
+import type { Components } from 'hast-util-to-jsx-runtime';
 import { useReactToPrint } from 'react-to-print';
 import { formatMarkdownSource } from '../utils/formatMarkdownSource';
 import { coercePrismLanguage, resolvePrismLanguage } from '../utils/resolvePrismLanguage';
-import { mermaidTracker } from '../utils/mermaidLoader';
-import MermaidBlock from './MermaidBlock';
+import { useAsyncMarkdown } from '../hooks/useAsyncMarkdown';
+import MermaidRenderer from './MermaidRenderer';
 
 function renderHighlightedCodeBlock(text: string, canonicalLanguage: string, className?: string) {
   try {
@@ -41,64 +36,7 @@ function renderHighlightedCodeBlock(text: string, canonicalLanguage: string, cla
   }
 }
 
-const markdownPlugins = [remarkGfm, remarkBreaks] as const;
-const rehypePlugins = [rehypeRaw] as const;
-
-function normalizeMermaidLabelText(source: string): string {
-  // Mermaid 标签容错：
-  // 1) 清洗：内部双引号统一替换为单引号；
-  // 2) 判断：是否已被最外层双引号包裹；
-  // 3) 包裹：未包裹且含特殊字符 ( ) . , = 时，补最外层双引号。
-  const normalizeLabel = (rawContent: string): string => {
-    const trimmed = rawContent.trim();
-    if (!trimmed) return trimmed;
-
-    const alreadyWrapped = /^".*"$/.test(trimmed);
-    if (alreadyWrapped) {
-      const inner = trimmed.slice(1, -1).replace(/"/g, "'");
-      return `"${inner}"`;
-    }
-
-    const cleaned = trimmed.replace(/"/g, "'");
-    const hasSpecialChars = /[().,=]/.test(cleaned);
-    return hasSpecialChars ? `"${cleaned}"` : cleaned;
-  };
-
-  const rewriteLine = (line: string): string => {
-    if (!line.trim() || line.trimStart().startsWith('%%')) return line;
-    let out = line;
-    out = out.replace(
-      /\b([A-Za-z_][\w-]*)\[([^\]\n]*)\]/g,
-      (_, id: string, label: string) => `${id}[${normalizeLabel(label)}]`
-    );
-    out = out.replace(
-      /\b([A-Za-z_][\w-]*)\(([^)\n]*)\)/g,
-      (_, id: string, label: string) => `${id}(${normalizeLabel(label)})`
-    );
-    out = out.replace(
-      /\b([A-Za-z_][\w-]*)\{([^}\n]*)\}/g,
-      (_, id: string, label: string) => `${id}{${normalizeLabel(label)}}`
-    );
-    return out;
-  };
-  return source
-    .split('\n')
-    .map(rewriteLine)
-    .join('\n');
-}
-
-function isMermaidElement(node: ReactNode): boolean {
-  if (!isValidElement(node)) return false;
-  const className = (node as ReactElement<{ className?: string }>).props?.className;
-  return typeof className === 'string' && /\blanguage-mermaid\b/.test(className);
-}
-
-function hasMermaidChild(children: ReactNode): boolean {
-  const arr = Array.isArray(children) ? children : [children];
-  return arr.some(isMermaidElement);
-}
-
-const markdownComponents: Components = {
+const markdownComponents: Partial<Components> = {
   table({ children, ...props }) {
     return (
       <div style={{ display: 'block' }} className="my-6 w-full max-w-full overflow-x-auto">
@@ -107,8 +45,8 @@ const markdownComponents: Components = {
     );
   },
   pre({ children, ...props }) {
-    // Mermaid 块走自定义 <div>+SVG，跳过 <pre> 包装避免 monospace 容器影响 SVG 排版。
-    if (hasMermaidChild(children)) {
+    const arr = Children.toArray(children);
+    if (arr.some((c) => isValidElement(c) && c.type === MermaidRenderer)) {
       return <>{children}</>;
     }
     return <pre {...props}>{children}</pre>;
@@ -118,17 +56,16 @@ const markdownComponents: Components = {
     const lang = match?.[1];
     const text = String(children).replace(/\n$/, '');
 
-    // 优先识别 ```mermaid，使用异步渲染器，绕过 Prism。
-    if (lang === 'mermaid' && text.trim()) {
-      return <MermaidBlock code={normalizeMermaidLabelText(text)} />;
-    }
-
     if (!text.trim() || !lang) {
       return (
         <code className={className} {...props}>
           {children}
         </code>
       );
+    }
+
+    if (lang === 'mermaid') {
+      return <MermaidRenderer code={text} />;
     }
 
     return renderHighlightedCodeBlock(text, resolvePrismLanguage(lang), className);
@@ -160,7 +97,6 @@ const isDirectoryPickerSupported =
   typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
 function extractFolderPath(file: File): string[] {
-  // `webkitRelativePath` 由 <input webkitdirectory> 与 browser-fs-access 的现代实现都会填充。
   const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
   if (!rel) return [];
   const parts = rel.split('/').filter(Boolean);
@@ -191,7 +127,6 @@ async function buildDraftsFromFiles(files: readonly File[]): Promise<ImportedNot
     })
   );
 
-  // In-batch 去重：按 folderPath+name+size 作为轻量指纹，避免同源重复写入。
   const seen = new Set<string>();
   const drafts: ImportedNoteDraft[] = [];
   for (const item of readResults) {
@@ -276,11 +211,16 @@ function LiveMarkdownWorkspace({
     return { lines, characters, words };
   }, [value]);
 
-  const markdownForPreview = useMemo(() => formatMarkdownSource(value), [value]);
+  const deferredValue = useDeferredValue(value);
+  const markdownForPreview = useMemo(() => formatMarkdownSource(deferredValue), [deferredValue]);
+  const { content: renderedMarkdown, isProcessing, waitForComplete } = useAsyncMarkdown(
+    markdownForPreview,
+    markdownComponents
+  );
 
   useEffect(() => {
     if (!import.meta.env.DEV || mode !== 'read') return;
-    console.log('[MDNote] formatMarkdownSource → react-markdown input:\n', markdownForPreview);
+    console.log('[MDNote] formatMarkdownSource → unified input:\n', markdownForPreview);
   }, [markdownForPreview, mode]);
 
   const handleCopy = async () => {
@@ -339,8 +279,6 @@ function LiveMarkdownWorkspace({
     if (isImporting) return;
     setIsImporting(true);
     try {
-      // 特性检测：若浏览器不支持 showDirectoryPicker，browser-fs-access 会自动降级到
-      // <input webkitdirectory>；这里仅做一次 UI 提示，避免用户困惑。
       if (!isDirectoryPickerSupported) {
         console.info('[MDNote] 当前浏览器不支持目录选择 API，已降级为 webkitdirectory 选择器。');
       }
@@ -369,17 +307,11 @@ function LiveMarkdownWorkspace({
   });
 
   const handleExportPdf = async () => {
-    // Ensure latest React render is committed before opening print dialog.
+    await waitForComplete();
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => resolve());
       });
-    });
-    // 等待所有 Mermaid 异步渲染（屏幕态 + 打印态）完成，避免打印捕获到加载占位符。
-    await mermaidTracker.wait();
-    // 再让浏览器至少绘制一帧，确保 SVG 已落地 layout。
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
     });
     handlePrint();
   };
@@ -507,17 +439,17 @@ function LiveMarkdownWorkspace({
           </div>
         ) : (
           <Fragment>
-            {/* react-markdown 产出块级节点，外层用 article，勿包在段落等行内容器内 */}
             <div className="h-full overflow-y-auto px-4 py-6 md:px-12 md:py-10 lg:px-20">
-              <article className="prose prose-base md:prose-lg prose-invert prose-pre:bg-slate-900 prose-pre:p-5 prose-pre:rounded-lg prose-pre:border prose-pre:border-zinc-700/50 prose-pre:shadow-inner prose-code:bg-transparent mx-auto w-full max-w-5xl overflow-x-auto rounded-[20px] border border-[#202833] bg-[#070c12] p-4 md:rounded-[28px] md:p-8">
-                <ReactMarkdown
-                  remarkPlugins={[...markdownPlugins]}
-                  rehypePlugins={[...rehypePlugins]}
-                  components={markdownComponents}
-                >
-                  {markdownForPreview}
-                </ReactMarkdown>
-              </article>
+              {isProcessing && !renderedMarkdown ? (
+                <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-400" role="status" aria-live="polite">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  正在渲染 Markdown…
+                </div>
+              ) : (
+                <article className="prose prose-base md:prose-lg prose-invert prose-pre:bg-slate-900 prose-pre:p-5 prose-pre:rounded-lg prose-pre:border prose-pre:border-zinc-700/50 prose-pre:shadow-inner prose-code:bg-transparent mx-auto w-full max-w-5xl overflow-x-auto rounded-[20px] border border-[#202833] bg-[#070c12] p-4 md:rounded-[28px] md:p-8">
+                  {renderedMarkdown}
+                </article>
+              )}
             </div>
           </Fragment>
         )}
@@ -532,13 +464,7 @@ function LiveMarkdownWorkspace({
         ref={printRef}
         className="print-only print-preview prose prose-code:bg-transparent max-w-none overflow-x-auto px-10 py-8"
       >
-        <ReactMarkdown
-          remarkPlugins={[...markdownPlugins]}
-          rehypePlugins={[...rehypePlugins]}
-          components={markdownComponents}
-        >
-          {markdownForPreview}
-        </ReactMarkdown>
+        {renderedMarkdown}
       </article>
 
     </section>
