@@ -184,6 +184,7 @@ function LiveMarkdownWorkspace({
   const [isImporting, setIsImporting] = useState(false);
   const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
   const [importHint, setImportHint] = useState<string | null>(null);
+  const [isPreparingPrint, setIsPreparingPrint] = useState(false);
   const printRef = useRef<HTMLElement | null>(null);
   const importMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -297,6 +298,8 @@ function LiveMarkdownWorkspace({
   const handlePrint = useReactToPrint({
     contentRef: printRef,
     documentTitle: `${noteTitle || 'MDNote'}-preview`,
+    onAfterPrint: () => setIsPreparingPrint(false),
+    onPrintError: () => setIsPreparingPrint(false),
     pageStyle: `
       @page { size: auto; margin: 14mm; }
       html, body { background: #ffffff !important; color: #111827 !important; }
@@ -307,10 +310,13 @@ function LiveMarkdownWorkspace({
   });
 
   const handleExportPdf = async () => {
+    setIsPreparingPrint(true);
     await waitForComplete();
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => resolve());
+        requestAnimationFrame(() => {
+          window.setTimeout(() => resolve(), 120);
+        });
       });
     });
     handlePrint();
@@ -460,12 +466,14 @@ function LiveMarkdownWorkspace({
         {mode === 'edit' ? '编辑' : '阅读'}
       </div>
 
-      <article
-        ref={printRef}
-        className="print-only print-preview prose prose-code:bg-transparent max-w-none overflow-x-auto px-10 py-8"
-      >
-        {renderedMarkdown}
-      </article>
+      {isPreparingPrint ? (
+        <article
+          ref={printRef}
+          className="print-only print-preview prose prose-code:bg-transparent max-w-none overflow-x-auto px-10 py-8"
+        >
+          {renderedMarkdown}
+        </article>
+      ) : null}
 
     </section>
   );

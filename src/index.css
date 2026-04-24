@@ -198,4 +198,66 @@ body {
     break-inside: avoid;
     page-break-inside: avoid;
   }
+
+  .print-preview .mermaid-block {
+    background: #1e1e2e !important;
+    border: 1px solid rgba(255, 255, 255, 0.24) !important;
+    border-radius: 0.75rem !important;
+    padding: 0.75rem !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-preview .mermaid-block svg {
+    background: transparent !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-preview .mermaid-block svg text,
+  .print-preview .mermaid-block svg tspan {
+    fill: #ffffff !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+
+  .print-preview .mermaid-block svg .edgePath path,
+  .print-preview .mermaid-block svg .flowchart-link,
+  .print-preview .mermaid-block svg line,
+  .print-preview .mermaid-block svg polyline,
+  .print-preview .mermaid-block svg path {
+    stroke: #ffffff !important;
+  }
+
+  .print-preview .mermaid-block svg marker path,
+  .print-preview .mermaid-block svg defs marker path {
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
+  }
+
+  .print-preview .mermaid-block svg .node rect,
+  .print-preview .mermaid-block svg .node circle,
+  .print-preview .mermaid-block svg .node polygon,
+  .print-preview .mermaid-block svg .node path {
+    fill: #2d2d3f !important;
+    stroke: #ffffff !important;
+  }
+
+  .print-preview .mermaid-block svg .edgeLabel rect,
+  .print-preview .mermaid-block svg .labelBox,
+  .print-preview .mermaid-block svg .label-container {
+    fill: #1e1e2e !important;
+    stroke: rgba(255, 255, 255, 0.4) !important;
+  }
+
+  .print-preview .mermaid-block svg foreignObject,
+  .print-preview .mermaid-block svg foreignObject * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    fill: #ffffff !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
 }
