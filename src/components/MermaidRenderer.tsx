@@ -7,6 +7,8 @@ interface MermaidRendererProps {
   code: string;
 }
 
+const DYNAMIC_IMPORT_RELOAD_KEY = 'mdnote_mermaid_dynamic_import_reloaded';
+
 const COMMENT_OR_DIRECTIVE = /^[ \t]*(?:%%|---)/;
 
 function preprocessMermaid(code: string): string {
@@ -46,7 +48,33 @@ function MermaidRenderer({ code }: MermaidRendererProps) {
         document.getElementById(id)?.remove();
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+          const message = err instanceof Error ? err.message : String(err);
+          const isDynamicImportChunkError =
+            /Failed to fetch dynamically imported module/i.test(message) ||
+            /Importing a module script failed/i.test(message);
+
+          // 发布后若用户命中旧缓存，hash chunk 可能 404；自动触发一次自愈刷新。
+          if (
+            isDynamicImportChunkError &&
+            typeof window !== 'undefined' &&
+            typeof sessionStorage !== 'undefined' &&
+            sessionStorage.getItem(DYNAMIC_IMPORT_RELOAD_KEY) !== '1'
+          ) {
+            sessionStorage.setItem(DYNAMIC_IMPORT_RELOAD_KEY, '1');
+            window.location.reload();
+            return;
+          }
+
+          // 首次正常加载成功后，清理标记，避免后续会话被锁定为“已重载”状态。
+          if (
+            typeof window !== 'undefined' &&
+            typeof sessionStorage !== 'undefined' &&
+            sessionStorage.getItem(DYNAMIC_IMPORT_RELOAD_KEY) === '1'
+          ) {
+            sessionStorage.removeItem(DYNAMIC_IMPORT_RELOAD_KEY);
+          }
+
+          setError(message);
         }
       }
     })();
